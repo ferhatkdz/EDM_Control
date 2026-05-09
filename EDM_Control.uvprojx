@@ -314,7 +314,7 @@
           </ArmAdsMisc>
           <Cads>
             <interw>1</interw>
-            <Optim>6</Optim>
+            <Optim>1</Optim>
             <oTime>0</oTime>
             <SplitLS>0</SplitLS>
             <OneElfS>1</OneElfS>
@@ -582,17 +582,12 @@
           </Files>
         </Group>
         <Group>
-          <GroupName>usb</GroupName>
+          <GroupName>libs</GroupName>
           <Files>
             <File>
-              <FileName>descriptors.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>.\src\usb\descriptors.c</FilePath>
-            </File>
-            <File>
-              <FileName>vcom_serial.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>.\src\usb\vcom_serial.c</FilePath>
+              <FileName>M480_vcom_lib.lib</FileName>
+              <FileType>4</FileType>
+              <FilePath>.\M480_vcom_lib.lib</FilePath>
             </File>
           </Files>
         </Group>

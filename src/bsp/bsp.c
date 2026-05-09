@@ -6,6 +6,10 @@
 #include <string.h>
 #include <stdarg.h>
 
+void BSP_SPARK_mosfet_set(uint8_t id, uint8_t state);
+void BSP_SPARK_mosfet_apply(void);
+void BSP_SPARK_pwm_set(int u32DutyCycle);
+	
 #define CRYSTAL_LESS				1
 #define TRIM_INIT           (SYS_BASE+0x10C)
 #define RXBUFSIZE           512 /* RX buffer size */
@@ -67,6 +71,23 @@ volatile int8_t gi8BulkOutReady = 0;
 
 uint16_t g_mosfet_status = 0;
 
+/* EMA Filtre Katsayısı (Bit Shift)
+ * Değer büyüdükçe filtre güçlenir (tepkime yavaşlar, gürültü azalır).
+ * 3 -> 1/8  (Orta seviye filtre)
+ * 4 -> 1/16 (Güçlü filtre)
+ * 5 -> 1/32 (Çok güçlü filtre)
+ */
+#define EMA_SHIFT_VAL   4  
+
+/* Global olarak filtrelenmiş verileri tutacağımız değişkenler 
+ * (Diğer dosyalardan extern ile erişebilirsiniz) */
+volatile uint32_t g_u32FilteredGapVoltage = 0;
+volatile uint32_t g_u32FilteredSparkCurrent = 0;
+
+/* EMA Akümülatörleri (Hassasiyet kaybını önlemek için yüksek tutulur) */
+static uint32_t s_u32GapVolAccumulator = 0;
+static uint32_t s_u32SparkCurAccumulator = 0;
+
 										 
 void SysTick_Handler(void) {
   QK_ISR_ENTRY(); /* inform QK about entering an ISR */
@@ -76,6 +97,88 @@ void SysTick_Handler(void) {
   QTIMEEVT_TICK_X(0U, &l_SysTick_Handler); /* process time events for rate 0 */
 
   QK_ISR_EXIT(); /* inform QK about exiting an ISR */
+}
+
+void EADC00_IRQHandler(void)
+{
+	EADC_CLR_INT_FLAG(EADC, EADC_STATUS2_ADIF0_Msk);      /* Clear the A/D ADINT0 interrupt flag */
+}
+
+void EADC02_IRQHandler(void)
+{
+	EADC_CLR_INT_FLAG(EADC, EADC_STATUS2_ADIF2_Msk);      /* Clear the A/D ADINT0 interrupt flag */
+}
+
+
+void EADC03_IRQHandler(void)
+{
+	EADC_CLR_INT_FLAG(EADC, EADC_STATUS2_ADIF3_Msk);      /* Clear the A/D ADINT0 interrupt flag */
+}
+
+volatile int ark_on = 1;
+void EADC01_IRQHandler(void)
+{
+		QK_ISR_ENTRY(); /* inform QK about entering an ISR */
+	
+		EADC_CLR_INT_FLAG(EADC, EADC_STATUS2_ADIF1_Msk);      /* Clear the A/D ADINT0 interrupt flag */
+	  
+		g_u32FilteredSparkCurrent = EADC_GET_CONV_DATA(EADC, 0);
+		g_u32FilteredGapVoltage   = EADC_GET_CONV_DATA(EADC, 1);
+	
+		if (g_u32FilteredGapVoltage < 20) {
+			if (ark_on == 1) {
+				//BSP_SPARK_mosfet_set(1,0);
+				//BSP_SPARK_mosfet_apply();
+				BSP_SPARK_pwm_set(2);
+				ark_on = 0;
+			}
+		}else {
+			if (ark_on == 0) {
+				//BSP_SPARK_mosfet_set(1,1);
+				//BSP_SPARK_mosfet_apply();
+				BSP_SPARK_pwm_set(10);
+				ark_on = 1;
+			}
+		}			
+
+	#if 0	
+    /* 1. Kesme Bayrağını Temizle (Biz INT0 kullanmıştık - BIT0) */
+    EADC_CLR_INT_FLAG(EADC, EADC_STATUS2_ADIF0_Msk);
+
+    /* 2. ADC Ham Verilerini Oku 
+       (EADC'in 13. ve 14. örnekleme modülleri) */
+    uint32_t u32RawSparkCur = EADC_GET_CONV_DATA(EADC, 13);
+    uint32_t u32RawGapVol   = EADC_GET_CONV_DATA(EADC, 14);
+
+    /* --- 3. SPARK AKIMI İÇİN EMA FİLTRESİ --- */
+    /* İlk çalışma durumu (Akümülatör boşsa ilk değerle doldur) */
+    if (s_u32SparkCurAccumulator == 0) {
+        s_u32SparkCurAccumulator = u32RawSparkCur << EMA_SHIFT_VAL;
+    }
+    /* EMA Matematik Modeli: Akümülatör = Akümülatör + Ham Değer - (Akümülatör / Filtre) */
+    s_u32SparkCurAccumulator += u32RawSparkCur - (s_u32SparkCurAccumulator >> EMA_SHIFT_VAL);
+    
+    /* Gerçek filtrelenmiş değeri elde etmek için akümülatörü geri kaydır */
+    g_u32FilteredSparkCurrent = s_u32SparkCurAccumulator >> EMA_SHIFT_VAL;
+
+
+    /* --- 4. GAP GERİLİMİ İÇİN EMA FİLTRESİ --- */
+    if (s_u32GapVolAccumulator == 0) {
+        s_u32GapVolAccumulator = u32RawGapVol << EMA_SHIFT_VAL;
+    }
+    s_u32GapVolAccumulator += u32RawGapVol - (s_u32GapVolAccumulator >> EMA_SHIFT_VAL);
+    
+    g_u32FilteredGapVoltage = s_u32GapVolAccumulator >> EMA_SHIFT_VAL;
+
+    /* * NOT: Filtrelenmiş GAP ve Akım değerleri hazır. 
+     * Motorun Z eksenini (Servo/Step) hareket ettirecek olan PID 
+     * fonksiyonunu veya durum makinesini (State Machine) burada 
+     * tetikleyebilir veya ana döngüde (main loop) bu global değişkenleri 
+     * okuyarak işleyebilirsiniz.
+     */
+		 #endif
+		
+		QK_ISR_EXIT(); /* inform QK about exiting an ISR */
 }
 
 
@@ -138,6 +241,15 @@ void debug_usb(char *format, ...) {
 	//bsp_hal_uart_transmit(&uart_debug, (uint8_t*)tmp_buf, ++pos);
 }
 
+void VCOM_ResetState(void) {
+	__set_PRIMASK(1);
+	comRhead = comRtail = comRbytes = 0;
+	comThead = comTtail = comTbytes = 0;
+	gu32TxSize = 0;
+	gu32RxSize = 0;
+	gi8BulkOutReady = 0;
+	__set_PRIMASK(0);
+}
 
 void VCOM_TransferData(void)
 {
@@ -401,49 +513,122 @@ void BSP_SPARK_mosfet_init(void) {
     SYS_LockReg();
 }
 
-void BSP_SPARK_pwm_init(void)
+void BSP_SPARK_adc_init(void)
+{
+		SYS_UnlockReg();
+	
+    /* EADC Saatini Etkinleştir */
+    CLK_EnableModuleClock(EADC_MODULE);
+	
+		/* EADC Saat Bölücüsünü Ayarla (192MHz / (7+1) = 24MHz) */
+    /* EADC hızı 72MHz'i (veya DS'deki sınırı) geçmemelidir. 24MHz güvenlidir. */	
+    CLK_SetModuleClock(EADC_MODULE, 0, CLK_CLKDIV0_EADC(8));
+
+	  /* Set PB.13 ~ PB.14 to input mode */
+		PB->MODE &= ~(GPIO_MODE_MODE13_Msk | GPIO_MODE_MODE14_Msk);
+	
+    /* PB.13 (CH13) ve PB.14 (CH14) Pinlerini Analog Giriş Yap */
+    SYS->GPB_MFPH = (SYS->GPB_MFPH & ~(SYS_GPB_MFPH_PB13MFP_Msk | SYS_GPB_MFPH_PB14MFP_Msk)) |
+                    (SYS_GPB_MFPH_PB13MFP_EADC0_CH13 | SYS_GPB_MFPH_PB14MFP_EADC0_CH14); 
+
+		/* Dijital Girişi Kapat (Analog hassasiyeti için kritik) */
+    GPIO_DISABLE_DIGITAL_PATH(PB, BIT13 | BIT14);
+	
+    /* ADC Modülünü Aç */
+    EADC_Open(EADC, EADC_CTL_DIFFEN_SINGLE_END);
+
+		#if 0
+		//bu kod çalışıyor
+		/* ----- Sample Module 0: CH13, EPWM1CH4 tetiklemeli ----- */
+    EADC_ConfigSampleModule(EADC,
+                            0,                              /* modül indeksi       */
+                            EADC_EPWM1TG4_TRIGGER,          /* EPWM1 CH4 tetikle   */
+                            13);                            /* ADC kanalı 13       */
+
+		
+    /* ----- Sample Module 1: CH14, Modül 0 ardından ----- */
+    EADC_ConfigSampleModule(EADC,
+                            1,                              /* modül indeksi       */
+                            EADC_ADINT0_TRIGGER,            /* ADINT0 ile tetikle  */
+                            14);                            /* ADC kanalı 14       */
+
+    /* Modül 0 dönüşüm tamamlandığında ADINT0 oluştur */
+    EADC_ENABLE_SAMPLE_MODULE_INT(EADC, 0, BIT0);   /* ADINT0 <- Module0 */
+
+    /* Modül 1 dönüşüm tamamlandığında ADINT1 oluştur */
+    EADC_ENABLE_SAMPLE_MODULE_INT(EADC, 1, BIT1);   /* ADINT1 <- Module1 */
+
+    /* ADC interrupt'larını etkinleştir */
+    EADC_ENABLE_INT(EADC, BIT0 | BIT1);    /* ADINT0 + ADINT1 */
+
+    /* NVIC üzerinden interrupt izni */
+    NVIC_EnableIRQ(EADC00_IRQn);
+    NVIC_EnableIRQ(EADC01_IRQn);
+		#else
+		/* ----- Sample Module 0: CH13, EPWM1CH4 tetiklemeli ----- */
+    EADC_ConfigSampleModule(EADC,
+                            0,                              /* modül indeksi       */
+                            EADC_EPWM1TG4_TRIGGER,          /* EPWM1 CH4 tetikle   */
+                            13);                            /* ADC kanalı 13       */
+		EADC_ConfigSampleModule(EADC,
+                            1,                              /* modül indeksi       */
+                            EADC_EPWM1TG4_TRIGGER,          /* EPWM1 CH4 tetikle   */
+                            14);                            /* ADC kanalı 14       */
+														
+    /* Clear the A/D ADINTx interrupt flag for safe */
+    EADC_CLR_INT_FLAG(EADC, EADC_STATUS2_ADIF0_Msk | EADC_STATUS2_ADIF1_Msk | EADC_STATUS2_ADIF2_Msk | EADC_STATUS2_ADIF3_Msk);
+				
+		#if 0		
+    /* Modül 0 dönüşüm tamamlandığında ADINT0 oluştur */
+    EADC_ENABLE_SAMPLE_MODULE_INT(EADC, 0, BIT0);   /* ADINT0 <- Module0 */
+		#endif
+
+    /* Modül 1 dönüşüm tamamlandığında ADINT1 oluştur */
+    EADC_ENABLE_SAMPLE_MODULE_INT(EADC, 1, BIT1);   /* ADINT1 <- Module1 */
+
+    /* ADC interrupt'larını etkinleştir */
+    EADC_ENABLE_INT(EADC, BIT0 | BIT1 | BIT2 | BIT3);    /* ADINT0 */
+		
+		#endif
+
+		
+		SYS_LockReg();
+}
+
+void BSP_SPARK_pwm_init(uint32_t u32Frequency)
 {
 		SYS_UnlockReg();
 	
 		CLK_EnableModuleClock(EPWM1_MODULE);  
 		CLK_SetModuleClock(EPWM1_MODULE, CLK_CLKSEL2_EPWM1SEL_PCLK1, 0);
-	  
+	
 
     /* PC1 Pinini EPWM1_CH4 Olarak Ayarla */
-    SYS->GPC_MFPL &= ~SYS_GPC_MFPL_PC1MFP_Msk;
-    SYS->GPC_MFPL |= SYS_GPC_MFPL_PC1MFP_EPWM1_CH4;
+	  SYS->GPC_MFPL = (SYS->GPC_MFPL & ~SYS_GPC_MFPL_PC1MFP_Msk) | SYS_GPC_MFPL_PC1MFP_EPWM1_CH4;
+	
+		/* Merkezi Hizalama (Up-Down Count) Moduna Al
+       Bu mod, gürültünün en az olduğu ON süresi ortasında ölçüm yapmamızı sağlar. 
+			 EPWM_ConfigOutputChannel den önce çağırılmalıdır. */
+    EPWM_SET_ALIGNED_TYPE(EPWM1, BIT4, EPWM_CENTER_ALIGNED);
 
-		EPWM_ConfigOutputChannel(EPWM1, 4, 20000, 50);
+		/* PWM Yapılandırması: u32Frequency KHz, %0 Duty (Başlangıçta kapalı) */
+		EPWM_ConfigOutputChannel(EPWM1, 4, u32Frequency, 0);
 
+    /* ADC Tetikleme Özelliği: Sayaç Periyot (Tepe) noktasına ulaştığında tetikle */
+    EPWM_EnableADCTrigger(EPWM1, 4, EPWM_TRG_ADC_EVEN_PERIOD); 
+	
 		/* Başlangıçta Spark Kapalı (PWM OUT HIGH)*/
 		EPWM_MASK_OUTPUT(EPWM1, EPWM_CH_4_MASK, EPWM_CH_4_MASK);
 	
+		EPWM_SET_OUTPUT_LEVEL(EPWM1, BIT4,
+                          EPWM_OUTPUT_LOW,   		/* sayıcı yukarı, CMP eşleşmesi  */
+                          EPWM_OUTPUT_HIGH,    	/* sayıcı aşağı, CMP eşleşmesi  */
+                          EPWM_OUTPUT_NOTHING,
+                          EPWM_OUTPUT_NOTHING);
+
 		/* Çıkışı ve Sayıcıyı Başlat */
 		EPWM_EnableOutput(EPWM1, EPWM_CH_4_MASK);
 		EPWM_Start(EPWM1, EPWM_CH_4_MASK);
-
-		#if 0
-    /* 3. EPWM1_CH4 Yapılandırması */
-    /* Prescaler ayarı: PCLK / (191 + 1) = 192MHz / 192 = 1MHz (1 tick = 1us) */
-    EPWM_SET_PRESCALER(EPWM1, 4, 191); 
-
-    /* Up-count modunda çalış */
-    EPWM_SET_ALIGNED_TYPE(EPWM1, BIT4, EPWM_EDGE_ALIGNED);
-
-    /* Sayıcı 0 iken: High (1) yap */
-    /* Sayıcı Compare iken: Low (0) yap */
-    /* Böylece 0 -> offTime arası 1, offTime -> CNR arası 0 olur (Spark On) */
-    EPWM1->WGCTL0 = (EPWM1->WGCTL0 & ~(3UL << 8)) | (1UL << 8); // Zero point: High
-    EPWM1->WGCTL1 = (EPWM1->WGCTL1 & ~(3UL << 8)) | (2UL << 8); // Compare Up: Low
-
-    /* Başlangıçta Spark Kapalı */
-    EPWM1->MSK |= (1UL << 4);     // CH4 Maske verisi = 1 (High)
-    EPWM1->MSKEN |= (1UL << 4);   // CH4 Maskeleme aktif
-
-    /* Çıkışı ve Sayıcıyı Başlat */
-    EPWM1->POEN |= (1UL << 4);    // Output Enable
-    EPWM1->CNTEN |= (1UL << 4);   // Counter Enable
-		#endif
 		
 		SYS_LockReg();
 }
@@ -456,12 +641,15 @@ void BSP_init(void) {
 	/* init spark mosfets */
 	BSP_SPARK_mosfet_init();
 	BSP_SPARK_mosfet_apply();
-	
+
 	/* init spark PWM */
-	BSP_SPARK_pwm_init();
+	BSP_SPARK_pwm_init(5000);
+	
+	/* init spark ADC */
+	BSP_SPARK_adc_init();
 	
 	/* init usb */
-	BSP_usb_init();
+	//BSP_usb_init();
 }
 
 /*..........................................................................*/
@@ -487,8 +675,18 @@ void QF_onStartup(void) {
 
   /* enable IRQs... */
 	NVIC_EnableIRQ(USBD_IRQn);
+  NVIC_EnableIRQ(EADC00_IRQn);
+	NVIC_EnableIRQ(EADC01_IRQn);
+	NVIC_EnableIRQ(EADC02_IRQn);
+	NVIC_EnableIRQ(EADC03_IRQn);
+	
+	
+	NVIC_SetPriority(EADC00_IRQn, QF_AWARE_ISR_CMSIS_PRI+1);
+	NVIC_SetPriority(EADC01_IRQn, QF_AWARE_ISR_CMSIS_PRI+1);
+	NVIC_SetPriority(EADC02_IRQn, QF_AWARE_ISR_CMSIS_PRI+1);
+	NVIC_SetPriority(EADC03_IRQn, QF_AWARE_ISR_CMSIS_PRI+1);
 
-	//BSP_SPARK_mosfet_set(1,1);
+	BSP_SPARK_mosfet_set(1,1);
 	/*
 	BSP_SPARK_mosfet_set(2,1);
 	BSP_SPARK_mosfet_set(3,1);
@@ -503,8 +701,9 @@ void QF_onStartup(void) {
 	
 	BSP_SPARK_mosfet_apply();
 	
-	BSP_SPARK_pwm_set(95);
+	BSP_SPARK_pwm_set(10);
 	
+	//EADC_START_CONV(EADC, BIT1);
 }
 
 /*..........................................................................*/
@@ -521,7 +720,7 @@ void QK_onIdle(void) {
 	
 	
 	
-	VCOM_TransferData();	
+	//VCOM_TransferData();	
 	
 	
 	

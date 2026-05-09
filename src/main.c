@@ -1,6 +1,5 @@
 #include "bsp.h"
 #include "cli.h"
-#include "motor.h"
 #include "qpc.h"
 
 Q_DEFINE_THIS_FILE
@@ -30,6 +29,11 @@ void SYS_Init(void) {
   /* Update System Core Clock */
   /* User can use SystemCoreClockUpdate() to calculate SystemCoreClock. */
   SystemCoreClockUpdate();
+	
+	// VREF voltaj seviyesini seç 
+	SYS->VREFCTL = SYS_VREFCTL_VREF_3_0V;
+
+
 
   /* Lock protected registers */
   SYS_LockReg();

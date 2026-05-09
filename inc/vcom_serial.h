@@ -69,15 +69,19 @@ typedef struct
 extern volatile int8_t gi8BulkOutReady;
 extern STR_VCOM_LINE_CODING gLineCoding;
 extern uint16_t gCtrlSignal;
+
+#if 0
 extern volatile uint16_t comRbytes;
 extern volatile uint16_t comRhead;
 extern volatile uint16_t comRtail;
 extern volatile uint16_t comTbytes;
 extern volatile uint16_t comThead;
 extern volatile uint16_t comTtail;
+#endif
 extern uint8_t *gpu8RxBuf;
 extern uint32_t gu32RxSize;
 extern uint32_t gu32TxSize;
+
 
 /*-------------------------------------------------------------*/
 void VCOM_Init(void);
@@ -85,7 +89,10 @@ void VCOM_ClassRequest(void);
 
 void EP2_Handler(void);
 void EP3_Handler(void);
+#if 0
 void VCOM_LineCoding(uint8_t port);
+#endif
+
 void VCOM_TransferData(void);
 void VCOM_ResetState(void);
 
