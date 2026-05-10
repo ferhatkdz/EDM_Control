@@ -85,7 +85,10 @@ extern uart_t uart_debug;
 
 void BSP_init(void);
 void BSP_pin_set(const void* const me, uint8_t val);
-void BSP_uart_puts(uart_t* uart, char* buf);
+void BSP_cli_puts(char* buf);
+void BSP_cli_transmit(char* buf, int length);
+
+void BSP_AXIS_Z_set_speed(int32_t speed);
 
 #ifdef __cplusplus
 }

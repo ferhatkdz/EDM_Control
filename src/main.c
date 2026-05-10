@@ -35,6 +35,44 @@ void SYS_Init(void) {
 
 
 
+	/* EADC Saatini Etkinlestir */
+	CLK_EnableModuleClock(EADC_MODULE);
+
+	/* EADC Saat Bölücüsünü Ayarla (192MHz / (7+1) = 24MHz) */
+	/* EADC hizi 72MHz'i (veya DS'deki siniri) geçmemelidir. 24MHz güvenlidir. */	
+	CLK_SetModuleClock(EADC_MODULE, 0, CLK_CLKDIV0_EADC(8));
+
+	/* Set PB.12 ~ PB.15 to input mode */
+	PB->MODE &= ~(GPIO_MODE_MODE12_Msk | GPIO_MODE_MODE13_Msk | GPIO_MODE_MODE14_Msk | GPIO_MODE_MODE15_Msk);
+
+	/* PB.12 (CH12) PB.13 (CH13) PB.14 (CH14) ve PB.15 (CH15) Pinlerini Analog Giris Yap */
+	SYS->GPB_MFPH = (SYS->GPB_MFPH & ~(SYS_GPB_MFPH_PB12MFP_Msk | SYS_GPB_MFPH_PB13MFP_Msk | SYS_GPB_MFPH_PB14MFP_Msk | SYS_GPB_MFPH_PB15MFP_Msk)) |
+									(SYS_GPB_MFPH_PB12MFP_EADC0_CH12 |SYS_GPB_MFPH_PB13MFP_EADC0_CH13 | SYS_GPB_MFPH_PB14MFP_EADC0_CH14 | SYS_GPB_MFPH_PB15MFP_EADC0_CH15); 
+
+	/* Dijital Girisi Kapat (Analog hassasiyeti için kritik) */
+	GPIO_DISABLE_DIGITAL_PATH(PB, BIT12 | BIT13 | BIT14 | BIT15);
+
+	/* ADC Modülünü Aç */
+	EADC_Open(EADC, EADC_CTL_DIFFEN_SINGLE_END);
+
+  /* Clear the A/D ADINTx interrupt flag for safe */
+  EADC_CLR_INT_FLAG(EADC, EADC_STATUS2_ADIF0_Msk | EADC_STATUS2_ADIF1_Msk | EADC_STATUS2_ADIF2_Msk | EADC_STATUS2_ADIF3_Msk);
+
+
+	/* EPWM1 Saatini Etkinlestir */
+	CLK_EnableModuleClock(EPWM1_MODULE);  
+	
+	/* select EPWM module clock source as PCLK1 */
+	CLK_SetModuleClock(EPWM1_MODULE, CLK_CLKSEL2_EPWM1SEL_PCLK1, 0);
+
+	/* PC1 Pinini EPWM1_CH4 Olarak Ayarla */
+	SYS->GPC_MFPL = (SYS->GPC_MFPL & ~SYS_GPC_MFPL_PC1MFP_Msk) | SYS_GPC_MFPL_PC1MFP_EPWM1_CH4;
+
+	// PC.1 - PC.5 arasini EPWM1 fonksiyonuna ata
+	SYS->GPC_MFPL = (SYS->GPC_MFPL & ~(SYS_GPC_MFPL_PC5MFP_Msk | SYS_GPC_MFPL_PC4MFP_Msk | SYS_GPC_MFPL_PC3MFP_Msk | SYS_GPC_MFPL_PC2MFP_Msk | SYS_GPC_MFPL_PC1MFP_Msk)) |
+                (SYS_GPC_MFPL_PC5MFP_EPWM1_CH0 | SYS_GPC_MFPL_PC4MFP_EPWM1_CH1 | SYS_GPC_MFPL_PC3MFP_EPWM1_CH2 | SYS_GPC_MFPL_PC2MFP_EPWM1_CH3 | SYS_GPC_MFPL_PC1MFP_EPWM1_CH4);
+
+
   /* Lock protected registers */
   SYS_LockReg();
 }

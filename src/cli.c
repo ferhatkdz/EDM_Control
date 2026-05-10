@@ -41,8 +41,6 @@ QState Cli_initial(Cli* const me, QEvt const* const e) {
 }
 
 QState Cli_idle(Cli* const me, QEvt const* const e) {
-	return Q_SUPER(&QHsm_top);
-	#if 0
   typedef enum { ESC_STATE_NONE, ESC_STATE_ESC, ESC_STATE_CSI } esc_state_t;
 
   static esc_state_t esc_state = ESC_STATE_NONE;
@@ -74,18 +72,18 @@ QState Cli_idle(Cli* const me, QEvt const* const e) {
           strcpy(me->buf, last_match);
           me->idx = strlen(me->buf);
           ClearLine();
-          bsp_hal_uart_transmit(&uart_debug, (uint8_t*)me->buf, me->idx);
+          BSP_cli_transmit((char*)me->buf, me->idx);
         } else if (matches > 1) {
           // Birden fazla → listeyi göster
-          BSP_uart_puts(&uart_debug, "\r\n");
+          BSP_cli_puts("\r\n");
           for (int i = 0; i < CLI_COMMAND_COUNT; i++) {
             if (strncmp(me->buf, cli_commands[i], me->idx) == 0) {
-              BSP_uart_puts(&uart_debug, (char*)cli_commands[i]);
-              BSP_uart_puts(&uart_debug, "  ");
+              BSP_cli_puts((char*)cli_commands[i]);
+              BSP_cli_puts("  ");
             }
           }
           SendPrompt();
-          bsp_hal_uart_transmit(&uart_debug, (uint8_t*)me->buf, me->idx);
+          BSP_cli_transmit((char*)me->buf, me->idx);
         }
       } else
 
@@ -117,7 +115,14 @@ QState Cli_idle(Cli* const me, QEvt const* const e) {
           } else {
             me->buf[me->idx++] = c;
           }
-          bsp_hal_uart_transmit(&uart_debug, (uint8_t*)&c, 1);
+          BSP_cli_transmit((char*)&c, 1);
+        }else if ((me->idx) && (c == 0x08)) { // Backspace
+					me->idx--;
+					if (me->idx == 0) {
+						in_history = 0;
+						hist_index = -1;
+					}
+          BSP_cli_transmit((char*)&c, 1);
         }
       break;
 
@@ -150,15 +155,14 @@ QState Cli_idle(Cli* const me, QEvt const* const e) {
   }
 
   return status;
-	#endif
 }
 
 static void SendPrompt(void) {
-  BSP_uart_puts(&uart_debug, "\r\nM2Drive> ");
+  BSP_cli_puts("\r\nM2Drive> ");
 }
 
 static void ClearLine(void) {
-  BSP_uart_puts(&uart_debug, "\x1B[2K\rM2Drive> ");
+  BSP_cli_puts("\x1B[2K\rM2Drive> ");
 }
 
 void CLI_ProcessCommand(char* cmd) {
@@ -177,14 +181,27 @@ void CLI_ProcessCommand(char* cmd) {
     return;
 
   if (!strcmp(argv[0], "help")) {
-    BSP_uart_puts(&uart_debug, "\r\nCommand:\r\nmove pos speed\r\n");
+    BSP_cli_puts("\r\nCommand:\r\nmove pos speed\r\n");
   } else if (!strcmp(argv[0], "move")) {
-    char buf[64];
-    float pos   = atof(argv[1]);
-    float speed = atof(argv[2]);
-    sprintf(buf, "\r\nMoving: pos=%.3f @ %.2f\r\n", pos, speed);
-    //BSP_reset_move(pos, speed);
-    BSP_uart_puts(&uart_debug, buf);
+    int direction = 0;
+    int speed   = atol(argv[2]);
+
+		char buf[64];
+		
+		if (!strcmp(argv[1], "left")) {
+			direction = -1;
+		}else if (!strcmp(argv[1], "right")) {
+			direction = 1;
+		}
+		
+		if (direction != 0) {
+			sprintf(buf, "\r\nMoving: %s @ %d\r\n", (direction == 1) ? "right" : "left", speed);
+			BSP_cli_puts(buf);
+			BSP_AXIS_Z_set_speed(speed * direction);
+		}else {
+			BSP_cli_puts("usage: move [left/right] speed[0 ~ 500]");
+		}
+		
   }
 }
 
@@ -216,7 +233,7 @@ void CLI_HistoryUp(Cli* const me) {
   strncpy(me->buf, history[idx], CLI_BUF_SIZE);
   me->idx = strlen(me->buf);
   ClearLine();
-  bsp_hal_uart_transmit(&uart_debug, (uint8_t*)me->buf, me->idx);
+  BSP_cli_transmit((char*)me->buf, me->idx);
 }
 
 void CLI_HistoryDown(Cli* const me) {
@@ -238,5 +255,5 @@ void CLI_HistoryDown(Cli* const me) {
   strncpy(me->buf, history[idx], CLI_BUF_SIZE);
   me->idx = strlen(me->buf);
   ClearLine();
-  bsp_hal_uart_transmit(&uart_debug, (uint8_t*)me->buf, me->idx);
+  BSP_cli_transmit((char*)me->buf, me->idx);
 }
