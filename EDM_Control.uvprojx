@@ -394,6 +394,21 @@
               <FileType>1</FileType>
               <FilePath>.\src\cli.c</FilePath>
             </File>
+            <File>
+              <FileName>pid.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\src\pid.c</FilePath>
+            </File>
+            <File>
+              <FileName>velocity.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\src\velocity.c</FilePath>
+            </File>
+            <File>
+              <FileName>motor.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\src\motor.c</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>

@@ -5,6 +5,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "motor.h"
+
 Cli Cli_inst; /* the active object */
 QActive* const AO_Cli = &Cli_inst.super;
 
@@ -159,6 +161,25 @@ QState Cli_idle(Cli* const me, QEvt const* const e) {
 
 static void SendPrompt(void) {
   BSP_cli_puts("\r\nM2Drive> ");
+
+	#if 0
+	Motor_MoveToPosition(10000);
+	
+    /* Şu anki CMR değerlerini oku */
+    uint32_t cmr0 = EPWM_GET_CMR(EPWM1, 0); /* AH */
+    uint32_t cmr2 = EPWM_GET_CMR(EPWM1, 2); /* BH */
+    uint32_t cnr  = EPWM_GET_CNR(EPWM1, 0);
+
+    CDC_SendFmt(
+        "PWM,CNR:%lu,CMR0:%lu,CMR2:%lu,"
+        "DUTY_A:%.1f%%,DUTY_B:%.1f%%\r\n",
+        (unsigned long)cnr,
+        (unsigned long)cmr0,
+        (unsigned long)cmr2,
+        100.0f * cmr0 / cnr,
+        100.0f * cmr2 / cnr);
+	#endif
+
 }
 
 static void ClearLine(void) {
@@ -169,6 +190,7 @@ void CLI_ProcessCommand(char* cmd) {
   char* token;
   char* argv[5];
   int argc = 0;
+	char buf[64];
 
   token = strtok(cmd, " ");
 
@@ -181,28 +203,24 @@ void CLI_ProcessCommand(char* cmd) {
     return;
 
   if (!strcmp(argv[0], "help")) {
-    BSP_cli_puts("\r\nCommand:\r\nmove pos speed\r\n");
+    BSP_cli_puts("\r\nCommand:\r\nmove stop status reset\r\n");
   } else if (!strcmp(argv[0], "move")) {
-    int direction = 0;
-    int speed   = atol(argv[2]);
-
-		char buf[64];
+    int duty   = atol(argv[1]);
 		
-		if (!strcmp(argv[1], "left")) {
-			direction = -1;
-		}else if (!strcmp(argv[1], "right")) {
-			direction = 1;
-		}
-		
-		if (direction != 0) {
-			sprintf(buf, "\r\nMoving: %s @ %d\r\n", (direction == 1) ? "right" : "left", speed);
+		if (duty != 0) {
+			sprintf(buf, "\r\nMoving: %s @ %d\r\n", (duty < 0) ? "negative" : "positive", abs(duty));
 			BSP_cli_puts(buf);
-			BSP_AXIS_Z_set_speed(speed * direction);
-		}else {
-			BSP_cli_puts("usage: move [left/right] speed[0 ~ 500]");
 		}
+		//BSP_AXIS_Z_set_duty(duty);
 		
-  }
+		Motor_MoveToPosition(duty);
+		
+  } else if (!strcmp(argv[0], "reset")) {
+		BSP_AXIS_z_reset_pos();
+		sprintf(buf, "\r\nReset z pos\r\n");
+		BSP_cli_puts(buf);
+  } 
+	
 }
 
 static inline int hist_phys_index(int logical) {

@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdarg.h>
+#include "motor.h"
 
 void debug_usb(char *format, ...);
 void BSP_SPARK_mosfet_set(uint8_t id, uint8_t state);
@@ -89,7 +90,9 @@ volatile uint32_t g_u32FilteredSparkCurrent = 0;
 static uint32_t s_u32GapVolAccumulator = 0;
 static uint32_t s_u32SparkCurAccumulator = 0;
 
-										 
+								
+volatile int32_t pos_now; 
+
 void SysTick_Handler(void) {
   QK_ISR_ENTRY(); /* inform QK about entering an ISR */
 
@@ -207,6 +210,24 @@ void BSP_cli_transmit(char* buf, int length) {
 	__set_PRIMASK(0);
 }
 
+
+void CDC_SendFmt(const char *fmt, ...)
+{
+    char buf[128];
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(buf, sizeof(buf), fmt, args);
+    va_end(args);
+    //CDC_Send(buf);
+	
+	__set_PRIMASK(1);	
+	for (int i=0; i<strlen(buf); i++) {
+		comRbuf[comRtail++] = buf[i];	
+		if (comRtail >= RXBUFSIZE) comRtail = 0;
+    comRbytes++;		
+	}
+	__set_PRIMASK(0);	
+}
 
 void debug_usb(char *format, ...) {
 	char tmp_buf[128];
@@ -512,7 +533,7 @@ void BSP_SPARK_pwm_set(int u32DutyCycle)
 	
 
 	// Normal Çalışma: Maskeyi kaldır ve süreleri güncelle
-	EPWM1->MSKEN &= ~(1UL << 4);      // Maskeyi kaldır (PWM sinyali pine gitsin)
+	EPWM1->MSKEN &= ~(EPWM_CH_4_MASK);  // Maskeyi kaldır (PWM sinyali pine gitsin)
 
 	// set new duty 
 	EPWM_SET_CMR(EPWM1, 4, u32DutyCycle * (EPWM_GET_CNR(EPWM1, 4) + 1U) / 100U);
@@ -582,6 +603,19 @@ void BSP_SPARK_pwm_init(uint32_t u32Frequency)
 		/* Başlangıçta Spark Kapalı (PWM OUT HIGH)*/
 		EPWM_MASK_OUTPUT(EPWM1, EPWM_CH_4_MASK, EPWM_CH_4_MASK);
 	
+	
+	/*
+		EPWM_SET_OUTPUT_LEVEL(epwm, u32ChannelMask, u32ZeroLevel, u32CmpUpLevel, u32PeriodLevel, u32CmpDownLevel)
+	        *
+	      *   *
+	    *       *
+	  *           *
+		
+		  __________
+		_|          |_
+		
+	*/
+	
 		EPWM_SET_OUTPUT_LEVEL(EPWM1, BIT4,
                           EPWM_OUTPUT_LOW,   		/* sayıcı yukarı, CMP eşleşmesi  */
                           EPWM_OUTPUT_HIGH,    	/* sayıcı aşağı, CMP eşleşmesi  */
@@ -614,50 +648,172 @@ void BSP_AXIS_Z_adc_Init(void)
 		SYS_LockReg();	
 }
 
+
+
+#define PCLK1_HZ             96000000UL
+
+/*
+ * Dead-time: 500ns @ 96MHz -> 500ns * 96 = 48 clock
+ * EPWM_EnableDeadZone() parametresi clock count cinsinden
+ */
+#define DEAD_TIME_CYCLES  ((500UL * (PCLK1_HZ / 1000000UL)) / 1000UL)    /* 48 */
+
+
+/* Bootstrap guard: min off-time için
+ * CU11=2.2µF, I_q=200µA → 11ms hold
+ * 20kHz'de her periyot zaten şarj eder
+ * Ama duty=%100 için guard: min 200ns off
+ * = DEAD_TIME_CYCLES yeterli                         */
+#define BOOTSTRAP_GUARD    (DEAD_TIME_CYCLES + 5UL)
+
+/* Duty ölçeği: -10000..+10000 (0.01% çözünürlük) */
+#define DUTY_SCALE         10000
+
 void BSP_AXIS_Z_pwm_init(uint32_t u32Freq) {
 	SYS_UnlockReg();
 	
 	/* Merkezi Hizalama (Up-Down Count) Moduna Al
        Bu mod, gürültünün en az olduğu ON süresi ortasında ölçüm yapmamızı sağlar. 
 			 EPWM_ConfigOutputChannel den önce çağırılmalıdır. */
-  EPWM_SET_ALIGNED_TYPE(EPWM1, BIT0 | BIT1 | BIT2 | BIT3, EPWM_CENTER_ALIGNED);
+  EPWM_SET_ALIGNED_TYPE(EPWM1, EPWM_CH_0_MASK | EPWM_CH_1_MASK | EPWM_CH_2_MASK | EPWM_CH_3_MASK, 
+															 EPWM_CENTER_ALIGNED);
 	
+	// Tam Köprü (Full Bridge) için CH0 ve CH2 Complementary (Tamamlayıcı) modu aç
+	// EPWM_ENABLE_COMPLEMENTARY_MODE(EPWM1); bu CH0 CH2 ve CH4 ün hepsini açıyor, aşağıdaki manuel CH0 ve CH2 yi açıyor.
+	EPWM1->CTL1 |=  (EPWM_CTL1_OUTMODE0_Msk | EPWM_CTL1_OUTMODE2_Msk);
+
 	// EPWM1 CH0 ve CH2 için Center-aligned (Merkez hizalı) mod seçelim (EMI için daha iyidir)
 	EPWM_ConfigOutputChannel(EPWM1, 0, u32Freq, 50); // Sol Kol (AH-AL)
 	EPWM_ConfigOutputChannel(EPWM1, 2, u32Freq, 50); // Sağ Kol (BH-BL)
+
+		// 2us civarında bir dead-time (MOSFET hızına göre ayarlanabilir)
+	EPWM_EnableDeadZone(EPWM1, 0, DEAD_TIME_CYCLES); // CH0-CH1 çifti için
+	EPWM_EnableDeadZone(EPWM1, 2, DEAD_TIME_CYCLES); // CH2-CH3 çifti için	
 	
+	/* CH0'ın sync çıkışı: counter sıfıra eşit olduğunda pulse üret */
+	EPWM_ConfigSyncPhase(EPWM1,
+											 0,                              /* CH0/1 çifti */
+											 EPWM_SYNC_OUT_FROM_COUNT_TO_ZERO, /* zero'da sync */
+											 EPWM_PHS_DIR_INCREMENT,
+											 0U);
+
+	/* CH2'yi bu sync sinyali ile senkronize et */
+	EPWM_ConfigSyncPhase(EPWM1,
+											 2,                              /* CH2/3 çifti */
+											 EPWM_SYNC_OUT_FROM_SYNCIN_SWSYNC, /* dışarıdan al */
+											 EPWM_PHS_DIR_INCREMENT,
+											 0U);                            /* phase offset = 0 */
+
+	/* CH2 için phase load enable */
+	EPWM_EnableSyncPhase(EPWM1, EPWM_CH_2_MASK);   /* CH2 PHSEN = 1 */
+		
+		
   /* ADC Tetikleme Özelliği: Sayaç Periyot (Tepe) noktasına ulaştığında tetikle */
   EPWM_EnableADCTrigger(EPWM1, 0, EPWM_TRG_ADC_EVEN_PERIOD); 	
 
-	// Tam Köprü (Full Bridge) için Complementary (Tamamlayıcı) modu aç
-	EPWM_ENABLE_COMPLEMENTARY_MODE(EPWM1);
 	
-	// 2us civarında bir dead-time (MOSFET hızına göre ayarlanabilir)
-	EPWM_EnableDeadZone(EPWM1, 0, 200); // CH0-CH1 çifti için
-	EPWM_EnableDeadZone(EPWM1, 2, 200); // CH2-CH3 çifti için	
-	
+  /* Motor_Enable() çağrılana kadar çıkışlar 0 */
+  EPWM_MASK_OUTPUT(EPWM1, EPWM_CH_0_MASK | EPWM_CH_1_MASK | EPWM_CH_2_MASK | EPWM_CH_3_MASK, 
+													0UL);
+
 	EPWM_EnableOutput(EPWM1, BIT0 | BIT1 | BIT2 | BIT3);	
 	
 	SYS_LockReg();
 }
 
-void BSP_AXIS_Z_set_speed(int32_t speed) {
-	// speed: -500 ile 500 arası (0 durma noktası)
-	// PWM_PERIOD_VALUE / 2 = %50 duty
-	
-	uint32_t duty_A = 500 + speed;
-	uint32_t duty_B = 500 - speed;
+#define QEI_MAX_COUNT          0xffffffff
 
-	// Sınırları kontrol et
-	if(duty_A > 950) duty_A = 950; // Bootstrap kapasitörü için %100 yapmıyoruz
-	if(duty_A < 50)  duty_A = 50;
+void BSP_AXIS_Z_qei_init(void)
+{
 	
-	EPWM_SET_CMR(EPWM1, 0, (duty_A * EPWM1->PERIOD[0]) / 1000);
-	EPWM_SET_CMR(EPWM1, 2, ((1000 - duty_A) * EPWM1->PERIOD[2]) / 1000);
+	/* Reset QEI module */
+  QEI_Close(QEI1);
 	
-  // Start
-	EPWM_Start(EPWM1, BIT0 | BIT1 | BIT2 | BIT3);
+	/* X4 mode: A ve B her iki kenarı say → max çözünürlük */
+	QEI_Open(QEI1,
+					 QEI_CTL_X4_FREE_COUNTING_MODE,
+					 QEI_MAX_COUNT);
+	
+	/* Enable QEI noise filter */
+	QEI_ENABLE_NOISE_FILTER(QEI1, QEI_CTL_NFCLKSEL_DIV4);
 
+  /* Set QEI counter value to 0 */
+  QEI_SET_CNT_VALUE(QEI1, 0);
+	
+	QEI_Start(QEI1);
+}
+
+void BSP_AXIS_Z_enable(void)
+{
+	/* Önce duty'yi merkeze al (0 hız) */
+	EPWM_SET_CMR(EPWM1, 0, 50 * (EPWM_GET_CNR(EPWM1, 0) + 1U) / 100U);
+	EPWM_SET_CMR(EPWM1, 2, 50 * (EPWM_GET_CNR(EPWM1, 2) + 1U) / 100U);
+
+	/* Mask kaldır → çıkışlar aktif */
+	EPWM1->MSKEN &= ~(EPWM_CH_0_MASK | EPWM_CH_1_MASK | EPWM_CH_2_MASK | EPWM_CH_3_MASK); 
+
+	EPWM_EnableOutput(EPWM1,
+			EPWM_CH_0_MASK | EPWM_CH_1_MASK |
+			EPWM_CH_2_MASK | EPWM_CH_3_MASK);
+
+
+	EPWM_Start(EPWM1, EPWM_CH_0_MASK | EPWM_CH_1_MASK | EPWM_CH_2_MASK | EPWM_CH_3_MASK);
+}
+
+void BSP_AXIS_Z_disable(void)
+{
+	/* Motor_Enable() çağrılana kadar çıkışlar 0 */
+  EPWM_MASK_OUTPUT(EPWM1, EPWM_CH_0_MASK | EPWM_CH_1_MASK | EPWM_CH_2_MASK | EPWM_CH_3_MASK, 
+													0UL);
+}
+
+void BSP_AXIS_z_reset_pos(void) {
+	QEI_Stop(QEI1);
+	QEI_SET_CNT_VALUE(QEI1, 0);
+	QEI_Start(QEI1);
+	pos_now = 0;
+}
+
+
+volatile int32_t last_duty = 0;
+
+void BSP_AXIS_Z_set_duty(int32_t duty) {
+	
+	last_duty = duty;
+	
+	/* duty 2000 in altında motor hareket etmiyor */
+	if (duty != 0) {
+		if (duty < 0) duty -= 2000;
+		else duty += 2000;
+	}
+	
+	/* Sınırla */
+	if (duty >  DUTY_SCALE) duty =  DUTY_SCALE;
+	if (duty < -DUTY_SCALE) duty = -DUTY_SCALE;
+
+	/* Center-aligned bipolar:
+	 * duty=0      → CMR = CNR/2        → net Vmotor=0
+	 * duty=+MAX   → CMR → CNR          → net Vmotor=+VM
+	 * duty=-MAX   → CMR → 0            → net Vmotor=-VM
+	 *
+	 * CMR_A = CNR/2 + duty*(CNR/2)/DUTY_SCALE
+	 * CMR_B = CNR   - CMR_A  (ters faz, bipolar)
+	 *
+	 * Bootstrap guard: CMR_A ∈ [GUARD, CNR-GUARD]  */
+
+	int32_t half = (int32_t)(EPWM_GET_CNR(EPWM1, 0) / 2);
+	int32_t cmp_a = half + (duty * half / DUTY_SCALE);
+
+	/* Bootstrap guard uygula */
+	if (cmp_a < (int32_t)BOOTSTRAP_GUARD)
+			cmp_a = (int32_t)BOOTSTRAP_GUARD;
+	if (cmp_a > (int32_t)(EPWM_GET_CNR(EPWM1, 0) - BOOTSTRAP_GUARD))
+			cmp_a = (int32_t)(EPWM_GET_CNR(EPWM1, 0) - BOOTSTRAP_GUARD);
+
+	int32_t cmp_b = (int32_t)EPWM_GET_CNR(EPWM1, 0) - cmp_a;
+
+	EPWM_SET_CMR(EPWM1, 0, (uint32_t)cmp_a); /* AH master */
+	EPWM_SET_CMR(EPWM1, 2, (uint32_t)cmp_b); /* BH master */	
 }
 
 void BSP_init(void) {
@@ -674,12 +830,6 @@ void BSP_init(void) {
 	
 	/* init spark PWM */
 	BSP_SPARK_pwm_init(5000);
-	
-	/* init axis z adc */
-	BSP_AXIS_Z_adc_Init();
-	
-	/* init axis z PWM */
-	BSP_AXIS_Z_pwm_init(20000);
 	
 	/* init usb */
 	BSP_usb_init();
@@ -736,12 +886,15 @@ void QF_onStartup(void) {
 	
 	BSP_SPARK_pwm_set(10);
 	
-	BSP_AXIS_Z_set_speed(500);
+	//BSP_AXIS_Z_enable();
 	
+	MotorControl_Init();
+	ControlTimer_Init();
 }
 
 /*..........................................................................*/
 
+volatile int32_t err = 0;
 
 void QK_onIdle(void) {
 	static uint32_t tickLed = 0;
@@ -753,11 +906,9 @@ void QK_onIdle(void) {
 	}
 	
 	
+	pos_now = QEI_GET_CNT_VALUE(QEI1);
 	
 	VCOM_TransferData();	
-	
-	
-	
 	
   //QF_INT_ENABLE();
 

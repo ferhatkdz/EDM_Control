@@ -83,12 +83,23 @@ typedef struct {
 
 extern uart_t uart_debug;
 
+void debug_usb(char *format, ...);
+void CDC_SendFmt(const char *fmt, ...);
+	
 void BSP_init(void);
 void BSP_pin_set(const void* const me, uint8_t val);
 void BSP_cli_puts(char* buf);
 void BSP_cli_transmit(char* buf, int length);
 
-void BSP_AXIS_Z_set_speed(int32_t speed);
+void BSP_AXIS_z_reset_pos(void);
+
+
+void BSP_AXIS_Z_qei_init(void);
+void BSP_AXIS_Z_pwm_init(uint32_t u32Freq);
+void BSP_AXIS_Z_adc_Init(void);
+void BSP_AXIS_Z_enable(void);
+void BSP_AXIS_Z_disable(void);
+void BSP_AXIS_Z_set_duty(int32_t duty) ;
 
 #ifdef __cplusplus
 }
