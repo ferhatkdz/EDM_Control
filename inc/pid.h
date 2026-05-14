@@ -56,6 +56,15 @@ void PID_Init(PID_t *pid,
 float PID_Update_Velocity(PID_t *pid, float setpoint,
                            float measured, float ff_input);
 
+/*-------------------------------------------------
+ * Positional form PID (anti-windup'lı P + I + FF).
+ * Kullanım: pozisyon döngüsü gibi büyük adım girişlerinde
+ * doymadan sonra "kaybolmaması" gereken kontrol çevrimleri.
+ * Kd yok — pozisyon loop'unda D-on-measurement gerekirse
+ * ayrıca eklenir.                                          */
+float PID_Update_Pos(PID_t *pid, float setpoint,
+                     float measured, float ff_input);
+
 
 
 void PID_Reset(PID_t *pid);

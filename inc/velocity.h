@@ -56,7 +56,11 @@ typedef struct
 #define CPS_TO_MMS(cps)  ((cps) * LEAD_SCREW_MM_PER_REV / COUNTS_PER_REV_F)
 
 static inline int32_t QEI_GetSignedCount(QEI_T *qei) {
-	return (int32_t)QEI_GET_CNT_VALUE(qei);
+	/* Encoder QEI_A/QEI_B fazları motor yönüne göre ters bağlı:
+	 * +duty motoru bir yöne sürerken QEI ters sayıyor. Bunu
+	 * software'de çevirerek "pozitif duty = pozitif sayım"
+	 * sözleşmesini koruyoruz. (alternatif: PA8/PA9 MFP swap) */
+	return -(int32_t)QEI_GET_CNT_VALUE(qei);
 }
 
 void VelMeasure_Update(VelMeasure_t *vm, int32_t qei_count);

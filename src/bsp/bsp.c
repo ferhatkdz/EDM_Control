@@ -6,6 +6,8 @@
 #include <string.h>
 #include <stdarg.h>
 #include "motor.h"
+#include "ark.h"
+#include "velocity.h"
 
 void debug_usb(char *format, ...);
 void BSP_SPARK_mosfet_set(uint8_t id, uint8_t state);
@@ -123,33 +125,21 @@ void EADC03_IRQHandler(void)
 	EADC_CLR_INT_FLAG(EADC, EADC_STATUS2_ADIF3_Msk);      /* Clear the A/D ADINT0 interrupt flag */
 }
 
-volatile int ark_on = 1;
 void EADC01_IRQHandler(void)
 {
 		QK_ISR_ENTRY(); /* inform QK about entering an ISR */
-	
-		EADC_CLR_INT_FLAG(EADC, EADC_STATUS2_ADIF1_Msk);      /* Clear the A/D ADINT0 interrupt flag */
-	  
+
+		EADC_CLR_INT_FLAG(EADC, EADC_STATUS2_ADIF1_Msk);
+
 		g_u32FilteredSparkCurrent = EADC_GET_CONV_DATA(EADC, 0);
 		g_u32FilteredGapVoltage   = EADC_GET_CONV_DATA(EADC, 1);
-	
-		if (g_u32FilteredGapVoltage < 20) {
-			if (ark_on == 1) {
-				//BSP_SPARK_mosfet_set(1,0);
-				//BSP_SPARK_mosfet_apply();
-				BSP_SPARK_pwm_set(2);
-				ark_on = 0;
-			}
-		}else {
-			if (ark_on == 0) {
-				//BSP_SPARK_mosfet_set(1,1);
-				//BSP_SPARK_mosfet_apply();
-				BSP_SPARK_pwm_set(10);
-				ark_on = 1;
-			}
-		}			
 
-	#if 0	
+		/* Ark servo loop (state machine + Z-ekseni servo). İçeride
+		 * /5 prescaler ile 1 kHz çalışıyor. Ad-hoc hysteresis kodu
+		 * ark modülüne taşındı.                                      */
+		Ark_Tick();
+
+	#if 0
     /* 1. Kesme Bayrağını Temizle (Biz INT0 kullanmıştık - BIT0) */
     EADC_CLR_INT_FLAG(EADC, EADC_STATUS2_ADIF0_Msk);
 
@@ -721,7 +711,6 @@ void BSP_AXIS_Z_pwm_init(uint32_t u32Freq) {
 	SYS_LockReg();
 }
 
-#define QEI_MAX_COUNT          0xffffffff
 
 void BSP_AXIS_Z_qei_init(void)
 {
@@ -780,13 +769,11 @@ volatile int32_t last_duty = 0;
 void BSP_AXIS_Z_set_duty(int32_t duty) {
 	
 	last_duty = duty;
-	
-	/* duty 2000 in altında motor hareket etmiyor */
-	if (duty != 0) {
-		if (duty < 0) duty -= 2000;
-		else duty += 2000;
-	}
-	
+
+	/* NOT: Dead-band kompansasyonu (±2000 ofset) zero-crossing'de
+	 * süreksizlik yaratıp limit cycle'a yol açıyordu; kaldırıldı.
+	 * Statik sürtünme telafisi gerekirse PID integral ile ele alınmalı. */
+
 	/* Sınırla */
 	if (duty >  DUTY_SCALE) duty =  DUTY_SCALE;
 	if (duty < -DUTY_SCALE) duty = -DUTY_SCALE;
@@ -858,7 +845,7 @@ void QF_onStartup(void) {
 
   /* enable IRQs... */
 	NVIC_EnableIRQ(USBD_IRQn);
-  NVIC_EnableIRQ(EADC00_IRQn);
+    NVIC_EnableIRQ(EADC00_IRQn);
 	NVIC_EnableIRQ(EADC01_IRQn);
 	NVIC_EnableIRQ(EADC02_IRQn);
 	NVIC_EnableIRQ(EADC03_IRQn);
@@ -869,6 +856,7 @@ void QF_onStartup(void) {
 	NVIC_SetPriority(EADC02_IRQn, QF_AWARE_ISR_CMSIS_PRI+1);
 	NVIC_SetPriority(EADC03_IRQn, QF_AWARE_ISR_CMSIS_PRI+1);
 
+	
 	BSP_SPARK_mosfet_set(1,1);
 	/*
 	BSP_SPARK_mosfet_set(2,1);
@@ -883,11 +871,11 @@ void QF_onStartup(void) {
 	*/
 	
 	BSP_SPARK_mosfet_apply();
-	
-	BSP_SPARK_pwm_set(10);
-	
-	//BSP_AXIS_Z_enable();
-	
+
+	/* Ark modülünü init et — spark KAPALI başlar.
+	 * Kullanıcı CLI'dan 'ark on' ile aktif eder.                 */
+	Ark_Init();
+
 	MotorControl_Init();
 	ControlTimer_Init();
 }
@@ -906,7 +894,7 @@ void QK_onIdle(void) {
 	}
 	
 	
-	pos_now = QEI_GET_CNT_VALUE(QEI1);
+	pos_now = QEI_GetSignedCount(QEI1);
 	
 	VCOM_TransferData();	
 	
