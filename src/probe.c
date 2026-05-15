@@ -50,6 +50,12 @@ void Probe_Start(AxisId_e axis, int32_t approach_cps,
 
     AxisHandle_t *ax = &g_axes[axis];
 
+    /* Önceki feed hold / emergency stop hw->disable() ile PWM'yi
+     * maskelemiş olabilir; Axis_UpdateVelocity (Probe_Tick'in kullandığı)
+     * hw->enable() çağırmadığı için motor sessizce hareket etmez.
+     * Axis_SetVelocity hem hw->enable hem vel PID reset yapar. */
+    Axis_SetVelocity(ax, 0);
+
     s_probe.axis         = axis;
     s_probe.mode         = mode;
     s_probe.approach_cps = approach_cps;
