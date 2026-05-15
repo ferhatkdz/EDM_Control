@@ -3,7 +3,8 @@
  *
  * Durum geçişleri:
  *   IDLE ──GCODE_CMD_SIG──► XY_MOVING ──AXIS_XY_DONE_SIG──► W_MOVING
- *        ──GCODE_STATUS_SIG (her durumdan cevapla)
+ *        ──GCODE_STATUS_SIG   (her durumdan cevapla)
+ *        ──GCODE_FEED_HOLD_SIG (her durumdan: dur, IDLE'a dön)
  *
  *   W_MOVING: 20ms QTimeEvt ile Axis_IsAtTarget(W) polling
  *             → true ise Z_ARK'a geç
@@ -291,6 +292,11 @@ static QState MotionAO_idle(MotionAO *me, QEvt const *e)
             break;
         }
 
+        case GCODE_FEED_HOLD_SIG:
+            send_str(me, "ok\n");
+            status = Q_HANDLED();
+            break;
+
         case GCODE_STATUS_SIG:
             send_status(me);
             status = Q_HANDLED();
@@ -328,6 +334,14 @@ static QState MotionAO_xy_moving(MotionAO *me, QEvt const *e)
             Axis_EmergencyStop(&g_axes[AXIS_Z]);
             Axis_EmergencyStop(&g_axes[AXIS_W]);
             send_str(me, "error:1\n");
+            status = Q_TRAN(&MotionAO_idle);
+            break;
+
+        case GCODE_FEED_HOLD_SIG:
+            Axis_EmergencyStop(&g_axes[AXIS_Z]);
+            Axis_EmergencyStop(&g_axes[AXIS_W]);
+            send_str(me, "ok\n");
+            me->state_str = "Idle";
             status = Q_TRAN(&MotionAO_idle);
             break;
 
@@ -381,6 +395,14 @@ static QState MotionAO_w_moving(MotionAO *me, QEvt const *e)
             status = Q_TRAN(&MotionAO_idle);
             break;
 
+        case GCODE_FEED_HOLD_SIG:
+            Axis_EmergencyStop(&g_axes[AXIS_Z]);
+            Axis_EmergencyStop(&g_axes[AXIS_W]);
+            send_str(me, "ok\n");
+            me->state_str = "Idle";
+            status = Q_TRAN(&MotionAO_idle);
+            break;
+
         case GCODE_STATUS_SIG:
             send_status(me);
             status = Q_HANDLED();
@@ -429,6 +451,15 @@ static QState MotionAO_z_ark(MotionAO *me, QEvt const *e)
             Axis_EmergencyStop(&g_axes[AXIS_Z]);
             Axis_EmergencyStop(&g_axes[AXIS_W]);
             send_str(me, "error:1\n");
+            status = Q_TRAN(&MotionAO_idle);
+            break;
+
+        case GCODE_FEED_HOLD_SIG:
+            Axis_EmergencyStop(&g_axes[AXIS_Z]);
+            Axis_EmergencyStop(&g_axes[AXIS_W]);
+            Ark_Enable(false);
+            send_str(me, "ok\n");
+            me->state_str = "Idle";
             status = Q_TRAN(&MotionAO_idle);
             break;
 
@@ -496,6 +527,15 @@ static QState MotionAO_probing(MotionAO *me, QEvt const *e)
             Axis_EmergencyStop(&g_axes[AXIS_W]);
             Probe_Reset();
             send_str(me, "error:1\n");
+            status = Q_TRAN(&MotionAO_idle);
+            break;
+
+        case GCODE_FEED_HOLD_SIG:
+            Axis_EmergencyStop(&g_axes[AXIS_Z]);
+            Axis_EmergencyStop(&g_axes[AXIS_W]);
+            Probe_Reset();
+            send_str(me, "ok\n");
+            me->state_str = "Idle";
             status = Q_TRAN(&MotionAO_idle);
             break;
 

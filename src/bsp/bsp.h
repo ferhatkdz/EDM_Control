@@ -40,6 +40,7 @@ enum Signals {
     /* GCodeAO → MotionAO */
     GCODE_CMD_SIG,        /* ayrıştırılmış hareket komutu — GCodeEvt      */
     GCODE_STATUS_SIG,     /* '?' anlık durum sorgusu                       */
+    GCODE_FEED_HOLD_SIG,  /* '!' anlık hareket iptali — newline beklenmez  */
 
     /* MotionAO → GCodeAO: PC'ye gönderilecek string */
     GCODE_RSP_SIG,        /* GCodeRspEvt                                   */

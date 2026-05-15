@@ -5,6 +5,7 @@
  * GCode_Parse() ile çöz ve uygun AO'ya ilet.
  *
  *  UART_RX_SIG → karakter biriktir
+ *       '!'    → GCODE_FEED_HOLD_SIG → MotionAO  (newline beklenmez)
  *       '\n'   → GCode_Parse()
  *                  ├─ is_status  → GCODE_STATUS_SIG → MotionAO
  *                  ├─ geçerli   → GCODE_CMD_SIG    → MotionAO  (GCodeEvt)
@@ -84,6 +85,15 @@ static QState GCodeAO_running(GCodeAO *me, QEvt const *e)
              * gönderir. cli.h'da tanımlı UartEvt kullanılır.
              */
             char ch = (char)((UartEvt const *)e)->ch;
+
+            /* '!' — anlık feed hold, newline beklenmez */
+            if (ch == '!') {
+                QEvt *pe = Q_NEW(QEvt, GCODE_FEED_HOLD_SIG);
+                QACTIVE_POST(AO_Motion, pe, me);
+                me->buf_len = 0U;
+                status = Q_HANDLED();
+                break;
+            }
 
             /* Satır sonu → parse */
             if (ch == '\n' || ch == '\r') {
