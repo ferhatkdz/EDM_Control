@@ -7,9 +7,13 @@
  *        ──GCODE_FEED_HOLD_SIG (her durumdan: dur, IDLE'a dön)
  *
  *   W_MOVING: 20ms QTimeEvt ile Axis_IsAtTarget(W) polling
- *             → true ise Z_ARK'a geç
+ *             → true ise Z_MOVING veya Z_ARK'a geç
  *
- *   Z_ARK: 20ms polling Ark_GetState() == ARK_REACHED / ARK_OFF
+ *   Z_MOVING: Ark OFF iken direkt pozisyon hareketi (W ile simetrik)
+ *             20ms polling Axis_IsAtTarget(Z) → IDLE'a dön, "ok\n"
+ *
+ *   Z_ARK: Ark aktif (M3) → servo delme modu
+ *          20ms polling Ark_GetState() == ARK_REACHED / ARK_OFF
  *          → IDLE'a dön, "ok\n" gönder
  *
  *   PROBING: 20ms polling Probe_GetState() == PROBE_DONE / PROBE_ERROR
@@ -73,6 +77,7 @@ static QState MotionAO_initial   (MotionAO *me, QEvt const *e);
 static QState MotionAO_idle      (MotionAO *me, QEvt const *e);
 static QState MotionAO_xy_moving (MotionAO *me, QEvt const *e);
 static QState MotionAO_w_moving  (MotionAO *me, QEvt const *e);
+static QState MotionAO_z_moving  (MotionAO *me, QEvt const *e);
 static QState MotionAO_z_ark     (MotionAO *me, QEvt const *e);
 static QState MotionAO_probing   (MotionAO *me, QEvt const *e);
 
@@ -148,7 +153,25 @@ static QState start_w_moving(MotionAO *me)
 static QState start_z_ark(MotionAO *me)
 {
     if (me->cmd.has_z) {
-        Ark_StartDrill(me->cmd.z);   /* mm cinsinden — ark.h API */
+        if (Ark_GetState() == ARK_OFF) {
+            /* Ark kapalı → W gibi direkt pozisyon hareketi */
+            int32_t target = (int32_t)(me->cmd.z *
+                              (float)g_axes[AXIS_Z].cfg->counts_per_mm);
+            if (me->cmd.gcode == 1U && me->cmd.f > 0.0f) {
+                int32_t f_cps = (int32_t)((me->cmd.f / 60.0f) *
+                                 (float)g_axes[AXIS_Z].cfg->counts_per_mm);
+                Axis_SetMaxVelocity(&g_axes[AXIS_Z], f_cps);
+            } else {
+                Axis_SetMaxVelocity(&g_axes[AXIS_Z],
+                                    (int32_t)g_axes[AXIS_Z].cfg->pos_out_max);
+            }
+            Axis_MoveToPosition(&g_axes[AXIS_Z], target);
+            me->state_str = "Run";
+            QTimeEvt_armX(&me->tick_te, MOTION_TICK_TICKS, MOTION_TICK_TICKS);
+            return Q_TRAN(&MotionAO_z_moving);
+        }
+        /* Ark aktif → servo delme modu */
+        Ark_StartDrill(me->cmd.z);
         me->state_str = "Run";
         QTimeEvt_armX(&me->tick_te, MOTION_TICK_TICKS, MOTION_TICK_TICKS);
         return Q_TRAN(&MotionAO_z_ark);
@@ -383,6 +406,65 @@ static QState MotionAO_w_moving(MotionAO *me, QEvt const *e)
         case MOTION_TICK_SIG:
             if (Axis_IsAtTarget(&g_axes[AXIS_W], W_POS_TOL_COUNTS)) {
                 status = start_z_ark(me);
+            } else {
+                status = Q_HANDLED();
+            }
+            break;
+
+        case AXIS_XY_ERROR_SIG:
+            Axis_EmergencyStop(&g_axes[AXIS_Z]);
+            Axis_EmergencyStop(&g_axes[AXIS_W]);
+            send_str(me, "error:1\n");
+            status = Q_TRAN(&MotionAO_idle);
+            break;
+
+        case GCODE_FEED_HOLD_SIG:
+            Axis_EmergencyStop(&g_axes[AXIS_Z]);
+            Axis_EmergencyStop(&g_axes[AXIS_W]);
+            send_str(me, "ok\n");
+            me->state_str = "Idle";
+            status = Q_TRAN(&MotionAO_idle);
+            break;
+
+        case GCODE_STATUS_SIG:
+            send_status(me);
+            status = Q_HANDLED();
+            break;
+
+        default:
+            status = Q_SUPER(&QHsm_top);
+            break;
+    }
+
+    return status;
+}
+
+/* ------------------------------------------------------------------ */
+/*  z_moving — Ark OFF iken direkt Z pozisyon hareketi (W ile simetrik) */
+/* ------------------------------------------------------------------ */
+static QState MotionAO_z_moving(MotionAO *me, QEvt const *e)
+{
+    QState status;
+
+    switch (e->sig) {
+
+        case Q_ENTRY_SIG:
+            me->state_str = "Run";
+            status = Q_HANDLED();
+            break;
+
+        case Q_EXIT_SIG:
+            QTimeEvt_disarm(&me->tick_te);
+            Axis_SetMaxVelocity(&g_axes[AXIS_Z],
+                                (int32_t)g_axes[AXIS_Z].cfg->pos_out_max);
+            status = Q_HANDLED();
+            break;
+
+        case MOTION_TICK_SIG:
+            if (Axis_IsAtTarget(&g_axes[AXIS_Z], W_POS_TOL_COUNTS)) {
+                send_str(me, "ok\n");
+                me->state_str = "Idle";
+                status = Q_TRAN(&MotionAO_idle);
             } else {
                 status = Q_HANDLED();
             }
