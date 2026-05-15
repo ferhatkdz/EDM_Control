@@ -8,6 +8,7 @@
 #include <stdarg.h>
 #include "motor.h"
 #include "ark.h"
+#include "probe.h"
 #include "velocity.h"
 
 void debug_usb(char *format, ...);
@@ -138,6 +139,7 @@ void EADC01_IRQHandler(void)
 		 * /5 prescaler ile 1 kHz çalışıyor. Ad-hoc hysteresis kodu
 		 * ark modülüne taşındı.                                      */
 		Ark_Tick();
+		Probe_Tick();
 
 	#if 0
     /* 1. Kesme Bayrağını Temizle (Biz INT0 kullanmıştık - BIT0) */

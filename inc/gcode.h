@@ -11,9 +11,11 @@ extern "C" {
  * GCodeAO bu fonksiyonları çağırarak GCodeEvt oluşturur.
  *
  * Desteklenen komutlar:
- *   G0  [Xx] [Yy] [Zz] [Ww]         — hızlı hareket
- *   G1  [Xx] [Yy] [Zz] [Ww] [Fff]   — doğrusal hareket
+ *   G0  [Xx] [Yy] [Zz] [Ww]         — hızlı hareket (maks hız)
+ *   G1  [Xx] [Yy] [Zz] [Ww] [Fff]   — doğrusal hareket (besleme hızı)
  *   G28                               — home
+ *   G38.2 [Zz|Ww] [Fff]             — probe: temas bul, mutlak konum raporla
+ *   G38.3 [Zz|Ww] [Fff]             — probe: temas bul, encoder sıfırla
  *   M3                                — kıvılcım aç
  *   M5                                — kıvılcım kapat
  *   ?                                 — anlık durum sorgusu
@@ -38,6 +40,8 @@ typedef struct {
     bool    has_w;
     bool    is_home;       /* G28 geldi                          */
     bool    is_status;     /* '?' satır içi durum sorgusu        */
+    bool    is_probe;      /* G38.2 — ölçüm modu (sıfırlamaz)   */
+    bool    is_probe_zero; /* G38.3 — temas anında encoder sıfır */
 } GCodeCmd_t;
 
 /*-------------------------------------------------

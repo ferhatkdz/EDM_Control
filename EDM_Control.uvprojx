@@ -439,6 +439,11 @@
               <FileType>1</FileType>
               <FilePath>.\src\motion_ao.c</FilePath>
             </File>
+            <File>
+              <FileName>probe.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\src\probe.c</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>
