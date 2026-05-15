@@ -110,19 +110,18 @@ void EADC00_IRQHandler(void)
 	EADC_CLR_INT_FLAG(EADC, EADC_STATUS2_ADIF0_Msk);      /* Clear the A/D ADINT0 interrupt flag */
 }
 
-volatile uint32_t g_u32MotorCurrentZ = 0;
-
+/* Z motor akımı — EADC Modül 2, CH15, EPWM1TG0 tetiklemeli */
 void EADC02_IRQHandler(void)
 {
-	EADC_CLR_INT_FLAG(EADC, EADC_STATUS2_ADIF2_Msk);      /* Clear the A/D ADINT0 interrupt flag */
-	
-	g_u32MotorCurrentZ = EADC_GET_CONV_DATA(EADC, 2);
+	EADC_CLR_INT_FLAG(EADC, EADC_STATUS2_ADIF2_Msk);
+	g_axes[AXIS_Z].current_adc = EADC_GET_CONV_DATA(EADC, 2);
 }
 
-
+/* W motor akımı — EADC Modül 3, CH12, EPWM0TG0 tetiklemeli */
 void EADC03_IRQHandler(void)
 {
-	EADC_CLR_INT_FLAG(EADC, EADC_STATUS2_ADIF3_Msk);      /* Clear the A/D ADINT0 interrupt flag */
+	EADC_CLR_INT_FLAG(EADC, EADC_STATUS2_ADIF3_Msk);
+	g_axes[AXIS_W].current_adc = EADC_GET_CONV_DATA(EADC, 3);
 }
 
 void EADC01_IRQHandler(void)
@@ -800,8 +799,163 @@ void BSP_AXIS_Z_set_duty(int32_t duty) {
 	int32_t cmp_b = (int32_t)EPWM_GET_CNR(EPWM1, 0) - cmp_a;
 
 	EPWM_SET_CMR(EPWM1, 0, (uint32_t)cmp_a); /* AH master */
-	EPWM_SET_CMR(EPWM1, 2, (uint32_t)cmp_b); /* BH master */	
+	EPWM_SET_CMR(EPWM1, 2, (uint32_t)cmp_b); /* BH master */
 }
+
+/* Z get_pos — fonksiyon işaretçisi için (statik, bsp.h'de yok) */
+static int32_t BSP_AXIS_Z_get_pos(void)
+{
+	return QEI_GetSignedCount(QEI1);
+}
+
+/*==========================================================
+ * W EKSENİ BSP — EPWM0 (PB2-5) + QEI0 (PA3-5)
+ * Tüm fonksiyonlar statik; AxisHW_t tablosu üzerinden erişilir.
+ *==========================================================*/
+
+static void BSP_AXIS_W_pwm_init(uint32_t u32Freq)
+{
+	SYS_UnlockReg();
+
+	EPWM_SET_ALIGNED_TYPE(EPWM0,
+		EPWM_CH_0_MASK | EPWM_CH_1_MASK | EPWM_CH_2_MASK | EPWM_CH_3_MASK,
+		EPWM_CENTER_ALIGNED);
+
+	/* Tam köprü: CH0 ve CH2 complementary mod */
+	EPWM0->CTL1 |= (EPWM_CTL1_OUTMODE0_Msk | EPWM_CTL1_OUTMODE2_Msk);
+
+	EPWM_ConfigOutputChannel(EPWM0, 0, u32Freq, 50); /* Sol kol (AH-AL) */
+	EPWM_ConfigOutputChannel(EPWM0, 2, u32Freq, 50); /* Sağ kol (BH-BL) */
+
+	EPWM_EnableDeadZone(EPWM0, 0, DEAD_TIME_CYCLES);
+	EPWM_EnableDeadZone(EPWM0, 2, DEAD_TIME_CYCLES);
+
+	/* CH0 sync çıkışı: sayaç sıfıra eşit olduğunda */
+	EPWM_ConfigSyncPhase(EPWM0, 0,
+		EPWM_SYNC_OUT_FROM_COUNT_TO_ZERO,
+		EPWM_PHS_DIR_INCREMENT, 0U);
+
+	/* CH2'yi sync sinyali ile senkronize et */
+	EPWM_ConfigSyncPhase(EPWM0, 2,
+		EPWM_SYNC_OUT_FROM_SYNCIN_SWSYNC,
+		EPWM_PHS_DIR_INCREMENT, 0U);
+	EPWM_EnableSyncPhase(EPWM0, EPWM_CH_2_MASK);
+
+	/* Motor akımı ADC tetiklemesi — sayaç tepe noktasında */
+	EPWM_EnableADCTrigger(EPWM0, 0, EPWM_TRG_ADC_EVEN_PERIOD);
+
+	/* enable() çağrılana kadar çıkışlar maskeli */
+	EPWM_MASK_OUTPUT(EPWM0,
+		EPWM_CH_0_MASK | EPWM_CH_1_MASK | EPWM_CH_2_MASK | EPWM_CH_3_MASK,
+		0UL);
+
+	EPWM_EnableOutput(EPWM0, BIT0 | BIT1 | BIT2 | BIT3);
+
+	SYS_LockReg();
+}
+
+static void BSP_AXIS_W_adc_init(void)
+{
+	SYS_UnlockReg();
+
+	/* Modül 3: CH12, EPWM0 CH0 periyodunda tetikle */
+	EADC_ConfigSampleModule(EADC, 3, EADC_EPWM0TG0_TRIGGER, 12);
+	EADC_ENABLE_SAMPLE_MODULE_INT(EADC, 3, BIT3);   /* ADINT3 <- Modül3 */
+	EADC_ENABLE_INT(EADC, BIT3);
+
+	SYS_LockReg();
+}
+
+static void BSP_AXIS_W_qei_init(void)
+{
+	QEI_Close(QEI0);
+	QEI_Open(QEI0, QEI_CTL_X4_FREE_COUNTING_MODE, QEI_MAX_COUNT);
+	QEI_ENABLE_NOISE_FILTER(QEI0, QEI_CTL_NFCLKSEL_DIV4);
+	QEI_SET_CNT_VALUE(QEI0, 0);
+	QEI_Start(QEI0);
+}
+
+static void BSP_AXIS_W_enable(void)
+{
+	EPWM_SET_CMR(EPWM0, 0, 50 * (EPWM_GET_CNR(EPWM0, 0) + 1U) / 100U);
+	EPWM_SET_CMR(EPWM0, 2, 50 * (EPWM_GET_CNR(EPWM0, 2) + 1U) / 100U);
+
+	EPWM0->MSKEN &= ~(EPWM_CH_0_MASK | EPWM_CH_1_MASK |
+	                   EPWM_CH_2_MASK | EPWM_CH_3_MASK);
+
+	EPWM_EnableOutput(EPWM0,
+		EPWM_CH_0_MASK | EPWM_CH_1_MASK |
+		EPWM_CH_2_MASK | EPWM_CH_3_MASK);
+
+	EPWM_Start(EPWM0,
+		EPWM_CH_0_MASK | EPWM_CH_1_MASK |
+		EPWM_CH_2_MASK | EPWM_CH_3_MASK);
+}
+
+static void BSP_AXIS_W_disable(void)
+{
+	EPWM_MASK_OUTPUT(EPWM0,
+		EPWM_CH_0_MASK | EPWM_CH_1_MASK | EPWM_CH_2_MASK | EPWM_CH_3_MASK,
+		0UL);
+}
+
+static void BSP_AXIS_W_reset_pos(void)
+{
+	QEI_Stop(QEI0);
+	QEI_SET_CNT_VALUE(QEI0, 0);
+	QEI_Start(QEI0);
+}
+
+static int32_t BSP_AXIS_W_get_pos(void)
+{
+	/* W encoder faz yönü test sonrası ayarlanacak;
+	 * Z ile aynı negatif sözleşme başlangıç noktası.   */
+	return QEI_GetSignedCount(QEI0);
+}
+
+static void BSP_AXIS_W_set_duty(int32_t duty)
+{
+	if (duty >  DUTY_SCALE) duty =  DUTY_SCALE;
+	if (duty < -DUTY_SCALE) duty = -DUTY_SCALE;
+
+	int32_t half  = (int32_t)(EPWM_GET_CNR(EPWM0, 0) / 2);
+	int32_t cmp_a = half + (duty * half / DUTY_SCALE);
+
+	if (cmp_a < (int32_t)BOOTSTRAP_GUARD)
+		cmp_a = (int32_t)BOOTSTRAP_GUARD;
+	if (cmp_a > (int32_t)(EPWM_GET_CNR(EPWM0, 0) - BOOTSTRAP_GUARD))
+		cmp_a = (int32_t)(EPWM_GET_CNR(EPWM0, 0) - BOOTSTRAP_GUARD);
+
+	int32_t cmp_b = (int32_t)EPWM_GET_CNR(EPWM0, 0) - cmp_a;
+
+	EPWM_SET_CMR(EPWM0, 0, (uint32_t)cmp_a); /* AH master */
+	EPWM_SET_CMR(EPWM0, 2, (uint32_t)cmp_b); /* BH master */
+}
+
+/*----------------------------------------------------------
+ * Donanım tabloları — ROM'da saklanır (const)
+ *----------------------------------------------------------*/
+const AxisHW_t g_axis_z_hw = {
+	.pwm_init  = BSP_AXIS_Z_pwm_init,
+	.adc_init  = BSP_AXIS_Z_adc_Init,
+	.qei_init  = BSP_AXIS_Z_qei_init,
+	.enable    = BSP_AXIS_Z_enable,
+	.disable   = BSP_AXIS_Z_disable,
+	.set_duty  = BSP_AXIS_Z_set_duty,
+	.reset_pos = BSP_AXIS_z_reset_pos,
+	.get_pos   = BSP_AXIS_Z_get_pos,
+};
+
+const AxisHW_t g_axis_w_hw = {
+	.pwm_init  = BSP_AXIS_W_pwm_init,
+	.adc_init  = BSP_AXIS_W_adc_init,
+	.qei_init  = BSP_AXIS_W_qei_init,
+	.enable    = BSP_AXIS_W_enable,
+	.disable   = BSP_AXIS_W_disable,
+	.set_duty  = BSP_AXIS_W_set_duty,
+	.reset_pos = BSP_AXIS_W_reset_pos,
+	.get_pos   = BSP_AXIS_W_get_pos,
+};
 
 void BSP_init(void) {
   /* configure gpio ports */
@@ -876,7 +1030,8 @@ void QF_onStartup(void) {
 	 * Kullanıcı CLI'dan 'ark on' ile aktif eder.                 */
 	Ark_Init();
 
-	MotorControl_Init();
+	/* Tüm eksenleri başlat (Z + W) — MotorControl_Init yerini aldı */
+	AllAxes_Init();
 	ControlTimer_Init();
 }
 
@@ -895,8 +1050,18 @@ void QK_onIdle(void) {
 	
 	
 	pos_now = QEI_GetSignedCount(QEI1);
-	
-	VCOM_TransferData();	
+
+	/* Aşırı akım hata raporlama — ISR flag'i ana döngüde CDC'ye yaz */
+	for (int _ai = 0; _ai < AXIS_COUNT; _ai++) {
+		if (g_axes[_ai].fault_overcurrent) {
+			g_axes[_ai].fault_overcurrent = false;
+			BSP_cli_puts("\r\nERROR: Axis ");
+			BSP_cli_puts(_ai == AXIS_Z ? "Z" : "W");
+			BSP_cli_puts(" overcurrent — motor stopped\r\n");
+		}
+	}
+
+	VCOM_TransferData();
 	
   //QF_INT_ENABLE();
 

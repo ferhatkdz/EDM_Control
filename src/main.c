@@ -30,7 +30,7 @@ void SYS_Init(void) {
   /* User can use SystemCoreClockUpdate() to calculate SystemCoreClock. */
   SystemCoreClockUpdate();
 	
-	// VREF voltaj seviyesini seç 
+	// VREF voltaj seviyesini seï¿½ 
 	SYS->VREFCTL = SYS_VREFCTL_VREF_3_0V;
 
 
@@ -38,8 +38,8 @@ void SYS_Init(void) {
 	/* EADC Saatini Etkinlestir */
 	CLK_EnableModuleClock(EADC_MODULE);
 
-	/* EADC Saat Bölücüsünü Ayarla (192MHz / (7+1) = 24MHz) */
-	/* EADC hizi 72MHz'i (veya DS'deki siniri) geçmemelidir. 24MHz güvenlidir. */	
+	/* EADC Saat Bï¿½lï¿½cï¿½sï¿½nï¿½ Ayarla (192MHz / (7+1) = 24MHz) */
+	/* EADC hizi 72MHz'i (veya DS'deki siniri) geï¿½memelidir. 24MHz gï¿½venlidir. */	
 	CLK_SetModuleClock(EADC_MODULE, 0, CLK_CLKDIV0_EADC(8));
 
 	/* Set PB.12 ~ PB.15 to input mode */
@@ -49,10 +49,10 @@ void SYS_Init(void) {
 	SYS->GPB_MFPH = (SYS->GPB_MFPH & ~(SYS_GPB_MFPH_PB12MFP_Msk | SYS_GPB_MFPH_PB13MFP_Msk | SYS_GPB_MFPH_PB14MFP_Msk | SYS_GPB_MFPH_PB15MFP_Msk)) |
 									(SYS_GPB_MFPH_PB12MFP_EADC0_CH12 |SYS_GPB_MFPH_PB13MFP_EADC0_CH13 | SYS_GPB_MFPH_PB14MFP_EADC0_CH14 | SYS_GPB_MFPH_PB15MFP_EADC0_CH15); 
 
-	/* Dijital Girisi Kapat (Analog hassasiyeti için kritik) */
+	/* Dijital Girisi Kapat (Analog hassasiyeti iï¿½in kritik) */
 	GPIO_DISABLE_DIGITAL_PATH(PB, BIT12 | BIT13 | BIT14 | BIT15);
 
-	/* ADC Modülünü Aç */
+	/* ADC Modï¿½lï¿½nï¿½ Aï¿½ */
 	EADC_Open(EADC, EADC_CTL_DIFFEN_SINGLE_END);
 
   /* Clear the A/D ADINTx interrupt flag for safe */
@@ -73,14 +73,37 @@ void SYS_Init(void) {
                 (SYS_GPC_MFPL_PC5MFP_EPWM1_CH0 | SYS_GPC_MFPL_PC4MFP_EPWM1_CH1 | SYS_GPC_MFPL_PC3MFP_EPWM1_CH2 | SYS_GPC_MFPL_PC2MFP_EPWM1_CH3 | SYS_GPC_MFPL_PC1MFP_EPWM1_CH4);
 
 
-	/*--- QEI Clock ---*/
+	/*--- Z ekseni QEI1 Clock ---*/
 	CLK_EnableModuleClock(QEI1_MODULE);
 
-	/*--- Pin MUX ---*/
-	SYS->GPA_MFPH =  (SYS->GPA_MFPH & ~(SYS_GPA_MFPH_PA8MFP_Msk | SYS_GPA_MFPH_PA9MFP_Msk | SYS_GPA_MFPH_PA10MFP_Msk)) |
-									 (SYS_GPA_MFPH_PA8MFP_QEI1_B  | SYS_GPA_MFPH_PA9MFP_QEI1_A  | SYS_GPA_MFPH_PA10MFP_QEI1_INDEX);
+	/*--- Z ekseni QEI1 Pin MUX (PA8-10, GPA_MFPH) ---*/
+	SYS->GPA_MFPH = (SYS->GPA_MFPH &
+	                  ~(SYS_GPA_MFPH_PA8MFP_Msk | SYS_GPA_MFPH_PA9MFP_Msk | SYS_GPA_MFPH_PA10MFP_Msk)) |
+	                 (SYS_GPA_MFPH_PA8MFP_QEI1_B | SYS_GPA_MFPH_PA9MFP_QEI1_A | SYS_GPA_MFPH_PA10MFP_QEI1_INDEX);
 
+	/*--- W ekseni EPWM0 Clock ---*/
+	CLK_EnableModuleClock(EPWM0_MODULE);
+	CLK_SetModuleClock(EPWM0_MODULE, CLK_CLKSEL2_EPWM0SEL_PCLK0, 0);
 
+	/*--- W ekseni EPWM0 Pin MUX (PB2-5, GPB_MFPL) ---*/
+	/* PB2->EPWM0_CH3(BL), PB3->EPWM0_CH2(BH),
+	 * PB4->EPWM0_CH1(AL), PB5->EPWM0_CH0(AH)      */
+	SYS->GPB_MFPL = (SYS->GPB_MFPL &
+	                  ~(SYS_GPB_MFPL_PB2MFP_Msk | SYS_GPB_MFPL_PB3MFP_Msk |
+	                    SYS_GPB_MFPL_PB4MFP_Msk | SYS_GPB_MFPL_PB5MFP_Msk)) |
+	                 (SYS_GPB_MFPL_PB2MFP_EPWM0_CH3 | SYS_GPB_MFPL_PB3MFP_EPWM0_CH2 |
+	                  SYS_GPB_MFPL_PB4MFP_EPWM0_CH1 | SYS_GPB_MFPL_PB5MFP_EPWM0_CH0);
+
+	/*--- W ekseni QEI0 Clock ---*/
+	CLK_EnableModuleClock(QEI0_MODULE);
+
+	/*--- W ekseni QEI0 Pin MUX (PA3-5, GPA_MFPL) ---*/
+	/* PA3->QEI0_B, PA4->QEI0_A, PA5->QEI0_INDEX */
+	SYS->GPA_MFPL = (SYS->GPA_MFPL &
+	                  ~(SYS_GPA_MFPL_PA3MFP_Msk | SYS_GPA_MFPL_PA4MFP_Msk |
+	                    SYS_GPA_MFPL_PA5MFP_Msk)) |
+	                 (SYS_GPA_MFPL_PA3MFP_QEI0_B | SYS_GPA_MFPL_PA4MFP_QEI0_A |
+	                  SYS_GPA_MFPL_PA5MFP_QEI0_INDEX);
 
   /* Lock protected registers */
   SYS_LockReg();

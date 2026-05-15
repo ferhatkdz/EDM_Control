@@ -7,6 +7,7 @@ extern "C" {
 #include "pinnames.h"
 #include "bsp_hal.h"
 #include "qpc.h"
+#include "axis.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -16,12 +17,12 @@ enum Signals {
     DUMMY_SIG = Q_USER_SIG,
     MAX_PUB_SIG,          /* 5 the last published signal */
 
-		TIMEOUT_SIG,														
+		TIMEOUT_SIG,
 
 		ZLIMIT1_PRESSED_SIG,
 		ZLIMIT1_PRESSED_LONG_SIG,
 		ZLIMIT1_RELEASED_SIG,
-	
+
 		ZLIMIT2_PRESSED_SIG,
 		ZLIMIT2_PRESSED_LONG_SIG,
 		ZLIMIT2_RELEASED_SIG,
@@ -29,13 +30,13 @@ enum Signals {
 		WLIMIT1_PRESSED_SIG,
 		WLIMIT1_PRESSED_LONG_SIG,
 		WLIMIT1_RELEASED_SIG,
-	
+
 		WLIMIT2_PRESSED_SIG,
 		WLIMIT2_PRESSED_LONG_SIG,
 		WLIMIT2_RELEASED_SIG,
 
     UART_RX_SIG,
-		
+
     MAX_SIG               /* the last signal */
 };
 
@@ -68,7 +69,7 @@ typedef struct {
 	gpio_t 				*gpio;
 	uint8_t 			activePinState;
 	KeyStatus_t 	status;
-	uint16_t 			sig;	
+	uint16_t 			sig;
 	uint16_t 			tick;
 }key_t;
 
@@ -85,21 +86,20 @@ extern uart_t uart_debug;
 
 void debug_usb(char *format, ...);
 void CDC_SendFmt(const char *fmt, ...);
-	
+
 void BSP_init(void);
 void BSP_pin_set(const void* const me, uint8_t val);
 void BSP_cli_puts(char* buf);
 void BSP_cli_transmit(char* buf, int length);
 
+/* Z ekseni BSP — doğrudan erişim (eski kod uyumluluğu) */
 void BSP_AXIS_z_reset_pos(void);
-
-
 void BSP_AXIS_Z_qei_init(void);
 void BSP_AXIS_Z_pwm_init(uint32_t u32Freq);
 void BSP_AXIS_Z_adc_Init(void);
 void BSP_AXIS_Z_enable(void);
 void BSP_AXIS_Z_disable(void);
-void BSP_AXIS_Z_set_duty(int32_t duty) ;
+void BSP_AXIS_Z_set_duty(int32_t duty);
 
 #ifdef __cplusplus
 }

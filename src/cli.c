@@ -22,7 +22,7 @@ int in_history = 0;    // 0 = normal mod, 1 = geçmiş modundayız
 static const char* cli_commands[] = {"help", "move", "vel", "vmax", "kp", "ki",
                                      "ark", "z", "edge", "vgap", "vshort", "kpark",
                                      "power", "sparkn", "sparks",
-                                     "stop", "status", "reset"};
+                                     "stop", "status", "reset", "clearfault"};
 #define CLI_COMMAND_COUNT (sizeof(cli_commands) / sizeof(cli_commands[0]))
 
 static void SendPrompt(void);
@@ -208,34 +208,45 @@ void CLI_ProcessCommand(char* cmd) {
 
   if (!strcmp(argv[0], "help")) {
     BSP_cli_puts("\r\nCommand:\r\n"
-                 "  move <count>   : pozisyon hedefi (counts)\r\n"
-                 "  vel  <cps>     : closed-loop velocity (count/s)\r\n"
-                 "  vmax <cps>     : pozisyon loop max hız\r\n"
-                 "  kp   <val>     : pos PID Kp\r\n"
-                 "  ki   <val>     : pos PID Ki\r\n"
-                 "  ark on|off     : spark PWM aktif/kapalı\r\n"
-                 "  ark            : durum & gap voltage\r\n"
-                 "  z    <mm>      : o anki pos'tan relatif delme\r\n"
-                 "  edge <cps> <mm>: kenar bul - <cps> hizla yaklas,\r\n"
-                 "                   temasta pos=0, <mm> guvenli mesafeye cek\r\n"
-                 "  vgap <adc>     : gap voltage hedefi (servo setpoint)\r\n"
-                 "  vshort <adc>   : kısa devre eşiği\r\n"
-                 "  kpark <val>    : ark servo Kp (cps/ADC)\r\n"
-                 "  power <0-10>   : enerji bankası MOSFET sayısı\r\n"
-                 "  sparkn <0-100> : normal spark PWM duty %%\r\n"
-                 "  sparks <0-100> : kısa devre spark PWM duty %%\r\n"
-                 "  stop           : motoru durdur (delmeyi de iptal)\r\n"
-                 "  reset          : QEI pozisyonunu sıfırla\r\n");
+                 "  move [z|w] <cnt>: pozisyon hedefi (counts); eksen yoksa Z\r\n"
+                 "  vel  <cps>      : closed-loop velocity (count/s) — Z ekseni\r\n"
+                 "  vmax <cps>      : pozisyon loop max hız\r\n"
+                 "  kp   <val>      : pos PID Kp\r\n"
+                 "  ki   <val>      : pos PID Ki\r\n"
+                 "  ark on|off      : spark PWM aktif/kapalı\r\n"
+                 "  ark             : durum & gap voltage\r\n"
+                 "  z    <mm>       : o anki pos'tan relatif delme\r\n"
+                 "  edge <cps> <mm> : kenar bul - <cps> hizla yaklas,\r\n"
+                 "                    temasta pos=0, <mm> guvenli mesafeye cek\r\n"
+                 "  vgap <adc>      : gap voltage hedefi (servo setpoint)\r\n"
+                 "  vshort <adc>    : kısa devre eşiği\r\n"
+                 "  kpark <val>     : ark servo Kp (cps/ADC)\r\n"
+                 "  power <0-10>    : enerji bankası MOSFET sayısı\r\n"
+                 "  sparkn <0-100>  : normal spark PWM duty %%\r\n"
+                 "  sparks <0-100>  : kısa devre spark PWM duty %%\r\n"
+                 "  stop [w]        : motoru durdur (varsayılan Z+ark)\r\n"
+                 "  status          : tüm eksen durumu\r\n"
+                 "  reset [w]       : QEI pozisyonunu sıfırla (varsayılan Z)\r\n"
+                 "  clearfault [w]  : aşırı akım hatasını temizle\r\n");
   } else if (!strcmp(argv[0], "move")) {
-    int duty   = atol(argv[1]);
+    if (argc < 2) {
+      BSP_cli_puts("\r\nUsage: move [z|w] <count>  (geriye uyumluluk: move <count> => Z)\r\n");
+    } else {
+      AxisHandle_t *ax = &g_axes[AXIS_Z];
+      int           argpos = 1;
 
-		if (duty != 0) {
-			sprintf(buf, "\r\nMoving: %s @ %d\r\n", (duty < 0) ? "negative" : "positive", abs(duty));
-			BSP_cli_puts(buf);
-		}
+      /* İkinci arg eksen adı mı? */
+      if (argc >= 3) {
+        if (!strcmp(argv[1], "z"))      { ax = &g_axes[AXIS_Z]; argpos = 2; }
+        else if (!strcmp(argv[1], "w")) { ax = &g_axes[AXIS_W]; argpos = 2; }
+      }
 
-		//Motor_MoveWithDuty(duty);
-		Motor_MoveToPosition(duty);
+      int32_t cnt = (int32_t)atol(argv[argpos]);
+      Axis_MoveToPosition(ax, cnt);
+      sprintf(buf, "\r\nMove %s: %ld counts\r\n",
+              ax->id == AXIS_Z ? "Z" : "W", (long)cnt);
+      BSP_cli_puts(buf);
+    }
 
   } else if (!strcmp(argv[0], "vel")) {
     if (argc < 2) {
@@ -281,9 +292,6 @@ void CLI_ProcessCommand(char* cmd) {
       /* Detaylı tanı çıktısı — birden fazla satır, küçük buf'a sığsın */
       extern volatile uint32_t g_u32FilteredGapVoltage;
       extern volatile uint32_t g_u32FilteredSparkCurrent;
-      extern volatile int32_t  s_target_vel;
-      extern volatile int32_t  last_duty;
-      extern volatile CtrlMode_e s_ctrl_mode;
 
       sprintf(buf, "\r\nark state : %s\r\n", Ark_GetStateStr());
       BSP_cli_puts(buf);
@@ -297,7 +305,9 @@ void CLI_ProcessCommand(char* cmd) {
         (long)Ark_GetStartZ(), (long)Ark_GetTargetZ(), (long)Ark_GetCurrentZ());
       BSP_cli_puts(buf);
       sprintf(buf, "  motor: ctrl_mode=%d vel_tgt=%ld duty=%ld\r\n",
-        (int)s_ctrl_mode, (long)s_target_vel, (long)last_duty);
+        (int)g_axes[AXIS_Z].ctrl_mode,
+        (long)g_axes[AXIS_Z].target_vel,
+        (long)g_axes[AXIS_Z].last_duty);
       BSP_cli_puts(buf);
       sprintf(buf, "  spark: power=%d MOSFET  pwm_n=%lu%% pwm_s=%lu%%\r\n",
         (int)Ark_GetPower(),
@@ -397,13 +407,44 @@ void CLI_ProcessCommand(char* cmd) {
       BSP_cli_puts(buf);
     }
   } else if (!strcmp(argv[0], "stop")) {
-    Ark_StopDrill();
-    Motor_EmergencyStop();
-    BSP_cli_puts("\r\nStopped (motor + ark drill)\r\n");
+    if (argc >= 2 && !strcmp(argv[1], "w")) {
+      Axis_EmergencyStop(&g_axes[AXIS_W]);
+      BSP_cli_puts("\r\nStopped W\r\n");
+    } else {
+      /* Varsayılan: Z + ark durdur */
+      Ark_StopDrill();
+      Motor_EmergencyStop();
+      BSP_cli_puts("\r\nStopped (Z + ark drill)\r\n");
+    }
   } else if (!strcmp(argv[0], "reset")) {
-		BSP_AXIS_z_reset_pos();
-		sprintf(buf, "\r\nReset z pos\r\n");
-		BSP_cli_puts(buf);
+    if (argc >= 2 && !strcmp(argv[1], "w")) {
+      Axis_ResetPos(&g_axes[AXIS_W]);
+      BSP_cli_puts("\r\nReset W pos\r\n");
+    } else {
+      /* Varsayılan: Z ekseni */
+      Motor_ResetPosition();
+      BSP_cli_puts("\r\nReset Z pos\r\n");
+    }
+  } else if (!strcmp(argv[0], "status")) {
+    for (int _i = 0; _i < AXIS_COUNT; _i++) {
+      AxisHandle_t *ax = &g_axes[_i];
+      sprintf(buf, "\r\n[%s] mode=%d pos=%ld vel=%.0f duty=%ld%s\r\n",
+              _i == AXIS_Z ? "Z" : "W",
+              (int)ax->ctrl_mode,
+              (long)ax->hw->get_pos(),
+              (double)ax->vel.velocity_cps,
+              (long)ax->last_duty,
+              ax->fault_overcurrent ? " OVERCURRENT!" : "");
+      BSP_cli_puts(buf);
+    }
+  } else if (!strcmp(argv[0], "clearfault")) {
+    if (argc >= 2 && !strcmp(argv[1], "w")) {
+      Axis_ClearFault(&g_axes[AXIS_W]);
+      BSP_cli_puts("\r\nFault cleared: W\r\n");
+    } else {
+      Axis_ClearFault(&g_axes[AXIS_Z]);
+      BSP_cli_puts("\r\nFault cleared: Z\r\n");
+    }
   }
 
 }
