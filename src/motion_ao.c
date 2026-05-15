@@ -121,33 +121,6 @@ static void send_str(MotionAO *me, const char *s)
 /*  Yardımcı: bir sonraki fazı başlat veya IDLE'a dön                 */
 /* ------------------------------------------------------------------ */
 
-/* Yalnızca W fazını başlat */
-static QState start_w_moving(MotionAO *me)
-{
-    if (me->cmd.has_w) {
-        int32_t target = (int32_t)(me->cmd.w *
-                          (float)g_axes[AXIS_W].cfg->counts_per_mm);
-
-        /* G0/G1 hız seçimi */
-        if (me->cmd.gcode == 1U && me->cmd.f > 0.0f) {
-            /* G1: belirtilen besleme hızı (mm/dak → cps) */
-            int32_t f_cps = (int32_t)((me->cmd.f / 60.0f) *
-                             (float)g_axes[AXIS_W].cfg->counts_per_mm);
-            Axis_SetMaxVelocity(&g_axes[AXIS_W], f_cps);
-        } else {
-            /* G0: varsayılan maksimum hız */
-            Axis_SetMaxVelocity(&g_axes[AXIS_W],
-                                (int32_t)g_axes[AXIS_W].cfg->pos_out_max);
-        }
-
-        Axis_MoveToPosition(&g_axes[AXIS_W], target);
-        me->state_str = "Run";
-        QTimeEvt_armX(&me->tick_te, MOTION_TICK_TICKS, MOTION_TICK_TICKS);
-        return Q_TRAN(&MotionAO_w_moving);
-    }
-    /* W yok — Z fazını başlat (start_z_ark Ark OFF/ON ayrımını yapar) */
-    return start_z_ark(me);
-}
 
 /* Z fazını başlat */
 static QState start_z_ark(MotionAO *me)
@@ -181,6 +154,35 @@ static QState start_z_ark(MotionAO *me)
     me->state_str = "Idle";
     return Q_TRAN(&MotionAO_idle);
 }
+
+/* Yalnızca W fazını başlat */
+static QState start_w_moving(MotionAO *me)
+{
+    if (me->cmd.has_w) {
+        int32_t target = (int32_t)(me->cmd.w *
+                          (float)g_axes[AXIS_W].cfg->counts_per_mm);
+
+        /* G0/G1 hız seçimi */
+        if (me->cmd.gcode == 1U && me->cmd.f > 0.0f) {
+            /* G1: belirtilen besleme hızı (mm/dak → cps) */
+            int32_t f_cps = (int32_t)((me->cmd.f / 60.0f) *
+                             (float)g_axes[AXIS_W].cfg->counts_per_mm);
+            Axis_SetMaxVelocity(&g_axes[AXIS_W], f_cps);
+        } else {
+            /* G0: varsayılan maksimum hız */
+            Axis_SetMaxVelocity(&g_axes[AXIS_W],
+                                (int32_t)g_axes[AXIS_W].cfg->pos_out_max);
+        }
+
+        Axis_MoveToPosition(&g_axes[AXIS_W], target);
+        me->state_str = "Run";
+        QTimeEvt_armX(&me->tick_te, MOTION_TICK_TICKS, MOTION_TICK_TICKS);
+        return Q_TRAN(&MotionAO_w_moving);
+    }
+    /* W yok — Z fazını başlat (start_z_ark Ark OFF/ON ayrımını yapar) */
+    return start_z_ark(me);
+}
+
 
 /* Probe fazını başlat (G38.2 / G38.3) */
 static QState start_probing(MotionAO *me)
