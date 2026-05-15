@@ -117,7 +117,9 @@ static QState GCodeAO_running(GCodeAO *me, QEvt const *e)
                         ge->has_y   = cmd.has_y;
                         ge->has_z   = cmd.has_z;
                         ge->has_w   = cmd.has_w;
-                        ge->is_home = cmd.is_home;
+                        ge->is_home       = cmd.is_home;
+                        ge->is_probe      = cmd.is_probe;
+                        ge->is_probe_zero = cmd.is_probe_zero;
                         QACTIVE_POST(AO_Motion, &ge->super, me);
                     } else if (!has_status && me->buf_len > 0U) {
                         /* Tanınmayan komut */

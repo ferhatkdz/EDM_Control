@@ -30,6 +30,8 @@ typedef struct {
     uint8_t mcode;          /* 0=yok, 3=M3, 5=M5      */
     bool    has_x, has_y, has_z, has_w;
     bool    is_home;        /* G28 */
+    bool    is_probe;       /* G38.2 — ölçüm modu   */
+    bool    is_probe_zero;  /* G38.3 — sıfırlama modu */
 } GCodeEvt;
 
 /*-------------------------------------------------

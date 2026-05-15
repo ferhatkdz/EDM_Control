@@ -11,8 +11,15 @@
  *   Z_ARK: 20ms polling Ark_GetState() == ARK_REACHED / ARK_OFF
  *          → IDLE'a dön, "ok\n" gönder
  *
+ *   PROBING: 20ms polling Probe_GetState() == PROBE_DONE / PROBE_ERROR
+ *            → IDLE'a dön, "[PRB:...]\nok\n" veya "error:8\n" gönder
+ *
  * Herhangi bir durumdan:
  *   AXIS_XY_ERROR_SIG → acil dur, "error:1\n" gönder, IDLE
+ *
+ * G0/G1 ayrımı (W ekseni):
+ *   G0: Axis_SetMaxVelocity ile varsayılan maks hız
+ *   G1 Fxxx: F parametresinden cps hesaplanır, W hareketi başlamadan uygulanır
  */
 
 #include "motion_ao.h"
@@ -23,6 +30,7 @@
 #include "bsp.h"
 #include "axis.h"
 #include "ark.h"
+#include "probe.h"
 #include <math.h>   /* isnanf */
 #include <string.h>
 #include <stdio.h>
@@ -65,6 +73,7 @@ static QState MotionAO_idle      (MotionAO *me, QEvt const *e);
 static QState MotionAO_xy_moving (MotionAO *me, QEvt const *e);
 static QState MotionAO_w_moving  (MotionAO *me, QEvt const *e);
 static QState MotionAO_z_ark     (MotionAO *me, QEvt const *e);
+static QState MotionAO_probing   (MotionAO *me, QEvt const *e);
 
 /* ------------------------------------------------------------------ */
 /*  Yardımcı: status cevabı gönder                                    */
@@ -112,6 +121,19 @@ static QState start_w_moving(MotionAO *me)
     if (me->cmd.has_w) {
         int32_t target = (int32_t)(me->cmd.w *
                           (float)g_axes[AXIS_W].cfg->counts_per_mm);
+
+        /* G0/G1 hız seçimi */
+        if (me->cmd.gcode == 1U && me->cmd.f > 0.0f) {
+            /* G1: belirtilen besleme hızı (mm/dak → cps) */
+            int32_t f_cps = (int32_t)((me->cmd.f / 60.0f) *
+                             (float)g_axes[AXIS_W].cfg->counts_per_mm);
+            Axis_SetMaxVelocity(&g_axes[AXIS_W], f_cps);
+        } else {
+            /* G0: varsayılan maksimum hız */
+            Axis_SetMaxVelocity(&g_axes[AXIS_W],
+                                (int32_t)g_axes[AXIS_W].cfg->pos_out_max);
+        }
+
         Axis_MoveToPosition(&g_axes[AXIS_W], target);
         me->state_str = "Run";
         QTimeEvt_armX(&me->tick_te, MOTION_TICK_TICKS, MOTION_TICK_TICKS);
@@ -134,6 +156,39 @@ static QState start_z_ark(MotionAO *me)
     send_str(me, "ok\n");
     me->state_str = "Idle";
     return Q_TRAN(&MotionAO_idle);
+}
+
+/* Probe fazını başlat (G38.2 / G38.3) */
+static QState start_probing(MotionAO *me)
+{
+    AxisId_e    axis;
+    float       target_mm;
+    ProbeMode_e mode = me->cmd.is_probe_zero ? PROBE_MODE_ZERO : PROBE_MODE_MEASURE;
+
+    if (me->cmd.has_z)      { axis = AXIS_Z; target_mm = me->cmd.z; }
+    else if (me->cmd.has_w) { axis = AXIS_W; target_mm = me->cmd.w; }
+    else {
+        send_str(me, "error:8\n");
+        return Q_TRAN(&MotionAO_idle);
+    }
+
+    /* Spark açıkken probe yasak */
+    if (Ark_GetState() != ARK_OFF) {
+        send_str(me, "error:8\n");
+        return Q_TRAN(&MotionAO_idle);
+    }
+
+    /* F parametresi → cps; varsayılan 100 mm/dak */
+    float f   = (me->cmd.f > 0.0f) ? me->cmd.f : 100.0f;
+    int32_t cps = (int32_t)((f / 60.0f) *
+                             (float)g_axes[axis].cfg->counts_per_mm);
+    /* Negatif hedef = iş parçasına doğru hareket */
+    if (target_mm < 0.0f) { cps = -cps; }
+
+    Probe_Start(axis, cps, target_mm, mode);
+    me->state_str = "Run";
+    QTimeEvt_armX(&me->tick_te, MOTION_TICK_TICKS, MOTION_TICK_TICKS);
+    return Q_TRAN(&MotionAO_probing);
 }
 
 /* ------------------------------------------------------------------ */
@@ -175,18 +230,20 @@ static QState MotionAO_idle(MotionAO *me, QEvt const *e)
             GCodeEvt const *ge = (GCodeEvt const *)e;
 
             /* Komutu kaydet */
-            me->cmd.x       = ge->x;
-            me->cmd.y       = ge->y;
-            me->cmd.z       = ge->z;
-            me->cmd.w       = ge->w;
-            me->cmd.f       = ge->f;
-            me->cmd.gcode   = ge->gcode;
-            me->cmd.mcode   = ge->mcode;
-            me->cmd.has_x   = ge->has_x;
-            me->cmd.has_y   = ge->has_y;
-            me->cmd.has_z   = ge->has_z;
-            me->cmd.has_w   = ge->has_w;
-            me->cmd.is_home = ge->is_home;
+            me->cmd.x            = ge->x;
+            me->cmd.y            = ge->y;
+            me->cmd.z            = ge->z;
+            me->cmd.w            = ge->w;
+            me->cmd.f            = ge->f;
+            me->cmd.gcode        = ge->gcode;
+            me->cmd.mcode        = ge->mcode;
+            me->cmd.has_x        = ge->has_x;
+            me->cmd.has_y        = ge->has_y;
+            me->cmd.has_z        = ge->has_z;
+            me->cmd.has_w        = ge->has_w;
+            me->cmd.is_home      = ge->is_home;
+            me->cmd.is_probe     = ge->is_probe;
+            me->cmd.is_probe_zero = ge->is_probe_zero;
 
             /* M kodu işle */
             if (me->cmd.mcode == 3U) { Ark_Enable(true);  }
@@ -197,6 +254,12 @@ static QState MotionAO_idle(MotionAO *me, QEvt const *e)
                 /* TODO Faz 4: home sequence */
                 send_str(me, "ok\n");
                 status = Q_HANDLED();
+                break;
+            }
+
+            /* G38.2 / G38.3 probe */
+            if (me->cmd.is_probe) {
+                status = start_probing(me);
                 break;
             }
 
@@ -297,6 +360,9 @@ static QState MotionAO_w_moving(MotionAO *me, QEvt const *e)
 
         case Q_EXIT_SIG:
             QTimeEvt_disarm(&me->tick_te);
+            /* G1 ile kısıtlanan hız limitini geri yükle */
+            Axis_SetMaxVelocity(&g_axes[AXIS_W],
+                                (int32_t)g_axes[AXIS_W].cfg->pos_out_max);
             status = Q_HANDLED();
             break;
 
@@ -362,6 +428,73 @@ static QState MotionAO_z_ark(MotionAO *me, QEvt const *e)
         case AXIS_XY_ERROR_SIG:
             Axis_EmergencyStop(&g_axes[AXIS_Z]);
             Axis_EmergencyStop(&g_axes[AXIS_W]);
+            send_str(me, "error:1\n");
+            status = Q_TRAN(&MotionAO_idle);
+            break;
+
+        case GCODE_STATUS_SIG:
+            send_status(me);
+            status = Q_HANDLED();
+            break;
+
+        default:
+            status = Q_SUPER(&QHsm_top);
+            break;
+    }
+
+    return status;
+}
+
+/* ------------------------------------------------------------------ */
+/*  probing — G38.2 / G38.3 kenar bulma                               */
+/* ------------------------------------------------------------------ */
+static QState MotionAO_probing(MotionAO *me, QEvt const *e)
+{
+    QState status;
+
+    switch (e->sig) {
+
+        case Q_ENTRY_SIG:
+            me->state_str = "Run";
+            status = Q_HANDLED();
+            break;
+
+        case Q_EXIT_SIG:
+            QTimeEvt_disarm(&me->tick_te);
+            Probe_Reset();
+            status = Q_HANDLED();
+            break;
+
+        case MOTION_TICK_SIG: {
+            ProbeState_e ps = Probe_GetState();
+
+            if (ps == PROBE_DONE || ps == PROBE_ERROR) {
+                GCodeRspEvt *rsp = Q_NEW(GCodeRspEvt, GCODE_RSP_SIG);
+                float cm    = Probe_GetContactMm();
+                float z_prb = (Probe_GetAxis() == AXIS_Z) ? cm : 0.0f;
+                float w_prb = (Probe_GetAxis() == AXIS_W) ? cm : 0.0f;
+                int   flag  = Probe_GetSuccess() ? 1 : 0;
+
+                snprintf(rsp->msg, sizeof(rsp->msg),
+                         "[PRB:0.000,0.000,%.3f,%.3f:%d]\n%s",
+                         (double)z_prb, (double)w_prb, flag,
+                         flag ? "ok\n" : "error:8\n");
+                rsp->len = (uint8_t)strlen(rsp->msg);
+                QACTIVE_POST(AO_GCode, &rsp->super, me);
+
+                Probe_Reset();
+                me->state_str = "Idle";
+                status = Q_TRAN(&MotionAO_idle);
+            } else {
+                status = Q_HANDLED();
+            }
+            break;
+        }
+
+        case AXIS_XY_ERROR_SIG:
+            Axis_EmergencyStop(&g_axes[AXIS_Z]);
+            Axis_EmergencyStop(&g_axes[AXIS_W]);
+            Probe_Reset();
             send_str(me, "error:1\n");
             status = Q_TRAN(&MotionAO_idle);
             break;

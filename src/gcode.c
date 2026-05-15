@@ -39,8 +39,10 @@ bool GCode_Parse(const char *line, GCodeCmd_t *out)
     out->has_y    = false;
     out->has_z    = false;
     out->has_w    = false;
-    out->is_home   = false;
-    out->is_status = false;
+    out->is_home       = false;
+    out->is_status     = false;
+    out->is_probe      = false;
+    out->is_probe_zero = false;
 
     const char *p = skip_ws(line);
 
@@ -97,6 +99,8 @@ bool GCode_Parse(const char *line, GCodeCmd_t *out)
                     int gnum = (int)val;
                     out->gcode = (uint8_t)gnum;
                     if (gnum == 28) { out->is_home = true; }
+                    if (fabsf(val - 38.2f) < 0.05f) { out->is_probe = true; }
+                    if (fabsf(val - 38.3f) < 0.05f) { out->is_probe = true; out->is_probe_zero = true; }
                     break;
                 }
                 case 'M': {
