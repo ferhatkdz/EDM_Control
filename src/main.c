@@ -20,8 +20,8 @@ static QEvt const *cliQSto[10];        /* CliAO (öncelik 1 — en düşük)    
 /*  Event pool storage — boyuta göre küçükten büyüğe                  */
 /* ------------------------------------------------------------------ */
 static QF_MPOOL_EL(QEvt)        smlPoolSto[30];   /* küçük (sadece sig) */
-static QF_MPOOL_EL(GCodeRspEvt) rspPoolSto[10];   /* GCodeRspEvt        */
-static QF_MPOOL_EL(GCodeEvt)    gcodePoolSto[20]; /* GCodeEvt (en büyük)*/
+static QF_MPOOL_EL(GCodeEvt)    gcodePoolSto[20]; /* GCodeEvt */
+static QF_MPOOL_EL(GCodeRspEvt) rspPoolSto[10];   /* GCodeRspEvt (en büyük) */
 
 void SYS_Init(void) {
   /* Unlock protected registers */
@@ -128,8 +128,8 @@ int main(void) {
 
   /* Event pool'ları küçükten büyüğe sırayla kaydet */
   QF_poolInit(smlPoolSto,   sizeof(smlPoolSto),   sizeof(smlPoolSto[0]));
-  QF_poolInit(rspPoolSto,   sizeof(rspPoolSto),   sizeof(rspPoolSto[0]));
   QF_poolInit(gcodePoolSto, sizeof(gcodePoolSto), sizeof(gcodePoolSto[0]));
+  QF_poolInit(rspPoolSto,   sizeof(rspPoolSto),   sizeof(rspPoolSto[0]));
 
   BSP_init(); /* initialize the Board Support Package */
 

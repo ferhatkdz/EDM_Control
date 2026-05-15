@@ -337,7 +337,7 @@
             <v6WtE>0</v6WtE>
             <v6Rtti>0</v6Rtti>
             <VariousControls>
-              <MiscControls></MiscControls>
+              <MiscControls>-fno-finite-math-only</MiscControls>
               <Define>M480 M483SE8AE M4</Define>
               <Undefine></Undefine>
               <IncludePath>.\inc;.\src\bsp;.\src\usb;.\bsp_hal\inc;.\M480BSP\Library\CMSIS\Include;.\M480BSP\Library\StdDriver\inc;.\M480BSP\Library\Device\Nuvoton\M480\Include;.\qpc\include;.\qpc\ports\arm-cm\qk\armclang</IncludePath>
@@ -413,6 +413,31 @@
               <FileName>ark.c</FileName>
               <FileType>1</FileType>
               <FilePath>.\src\ark.c</FilePath>
+            </File>
+            <File>
+              <FileName>axis.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\src\axis.c</FilePath>
+            </File>
+            <File>
+              <FileName>axis_comm_ao.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\src\axis_comm_ao.c</FilePath>
+            </File>
+            <File>
+              <FileName>gcode.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\src\gcode.c</FilePath>
+            </File>
+            <File>
+              <FileName>gcode_ao.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\src\gcode_ao.c</FilePath>
+            </File>
+            <File>
+              <FileName>motion_ao.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\src\motion_ao.c</FilePath>
             </File>
           </Files>
         </Group>
