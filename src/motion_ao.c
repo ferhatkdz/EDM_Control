@@ -145,8 +145,8 @@ static QState start_w_moving(MotionAO *me)
         QTimeEvt_armX(&me->tick_te, MOTION_TICK_TICKS, MOTION_TICK_TICKS);
         return Q_TRAN(&MotionAO_w_moving);
     }
-    /* W yok — Z'ye atla */
-    return Q_TRAN(&MotionAO_z_ark);
+    /* W yok — Z fazını başlat (start_z_ark Ark OFF/ON ayrımını yapar) */
+    return start_z_ark(me);
 }
 
 /* Z fazını başlat */
