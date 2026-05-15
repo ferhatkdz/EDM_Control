@@ -1,5 +1,6 @@
 #include "bsp.h"
 #include "cli.h"
+#include "gcode_ao.h"
 #include "vcom_serial.h"
 #include <math.h>
 #include <stdio.h>
@@ -406,7 +407,8 @@ void VCOM_TransferData(void)
 				
 				UartEvt* e = Q_NEW(UartEvt, UART_RX_SIG);
 				e->ch      = comTbuf[comThead++];
-				QACTIVE_POST(AO_Cli, &e->super, 0);
+				/* USB VCOM karakterleri GCodeAO'ya yönlendir (Faz 2+) */
+				QACTIVE_POST(AO_GCode, &e->super, 0);
 			
 				if(comThead >= TXBUFSIZE)
 							comThead = 0;

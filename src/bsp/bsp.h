@@ -37,6 +37,24 @@ enum Signals {
 
     UART_RX_SIG,
 
+    /* GCodeAO → MotionAO */
+    GCODE_CMD_SIG,        /* ayrıştırılmış hareket komutu — GCodeEvt      */
+    GCODE_STATUS_SIG,     /* '?' anlık durum sorgusu                       */
+
+    /* MotionAO → GCodeAO: PC'ye gönderilecek string */
+    GCODE_RSP_SIG,        /* GCodeRspEvt                                   */
+
+    /* AxisCommAO ↔ MotionAO */
+    AXIS_COMM_CMD_SIG,    /* MotionAO → AxisCommAO: X/Y hareketi başlat   */
+    AXIS_XY_DONE_SIG,     /* AxisCommAO → MotionAO: Axis CPU "DONE\n"     */
+    AXIS_XY_ERROR_SIG,    /* AxisCommAO → MotionAO: timeout veya "ER\n"   */
+
+    /* MotionAO iç periyodik kontrol */
+    MOTION_TICK_SIG,      /* QTimeEvt, 20ms                                */
+
+    /* AxisCommAO: UART1 RX karakteri (Faz 3'te kullanılacak) */
+    UART_AXIS_RX_SIG,     /* UartEvt yapısı, UART_RX_SIG ile aynı tip     */
+
     MAX_SIG               /* the last signal */
 };
 

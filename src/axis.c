@@ -340,3 +340,18 @@ void Axis_ClearFault(AxisHandle_t *ax)
     ax->fault_overcurrent = false;
     ax->overcurrent_count = 0;
 }
+
+/*-------------------------------------------------
+ * Hedef pozisyona ulaşıldı mı?
+ *------------------------------------------------*/
+bool Axis_IsAtTarget(const AxisHandle_t *ax, int32_t tol_counts)
+{
+    if (!ax || !ax->hw) { return false; }
+
+    int32_t pos     = ax->hw->get_pos();
+    int32_t err     = ax->target_pos - pos;
+    float   vel_abs = ax->vel.velocity_cps;
+    if (vel_abs < 0.0f) { vel_abs = -vel_abs; }
+
+    return (err > -tol_counts) && (err < tol_counts) && (vel_abs < 50.0f);
+}

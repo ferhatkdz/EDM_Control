@@ -149,6 +149,16 @@ float Axis_GetPosKi(const AxisHandle_t *ax);
  *------------------------------------------------*/
 void Axis_ClearFault(AxisHandle_t *ax);
 
+/*-------------------------------------------------
+ * Hedef pozisyona ulaşıldı mı?
+ *
+ * Koşul: |target_pos - get_pos()| < tol_counts
+ *         VE |vel_cps| < 50
+ *
+ * MotionAO tarafından 20ms polling ile çağrılır.
+ *------------------------------------------------*/
+bool Axis_IsAtTarget(const AxisHandle_t *ax, int32_t tol_counts);
+
 #if defined(__cplusplus)
 }
 #endif
