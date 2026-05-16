@@ -291,6 +291,10 @@ static QState MotionAO_idle(MotionAO *me, QEvt const *e)
                 Ark_SetSparkPwmShort((uint32_t)me->cmd.p);
             if (me->cmd.mcode == 102U && me->cmd.has_p)
                 Ark_SetPower((uint8_t)me->cmd.p);
+            if (me->cmd.mcode == 103U && me->cmd.has_p)
+                Ark_SetGapTarget((uint32_t)me->cmd.p);
+            if (me->cmd.mcode == 104U && me->cmd.has_p)
+                Ark_SetGapShort((uint32_t)me->cmd.p);
 
             /* G28 home */
             if (me->cmd.is_home) {
