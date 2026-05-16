@@ -209,9 +209,12 @@ void Ark_Tick(void)
     int32_t  vel_cmd;
 
     if (gap_v < s_ark.gap_short_adc) {
-        /* Kısa devre / ark — acil geri çekme + spark duty düşür */
+        /* Kısa devre / ark — acil geri çekme + PWM tamamen kapa.
+         * MOSFET yanmasını önlemek için spark_pwm_short yerine 0:
+         * kısa devre süresince enerji bankasının elektroda gelmesini
+         * tamamen durdurur, sadece geri çekme motoru çalışır. */
         vel_cmd = s_ark.vel_retract_max;
-        BSP_SPARK_pwm_set((int)s_ark.spark_pwm_short);
+        BSP_SPARK_pwm_set(0);
     } else {
         /* Servo kanunu:
          *   err > 0 (gap büyük)  → vel negatif (aşağı/ilerleme)

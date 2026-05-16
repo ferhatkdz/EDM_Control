@@ -127,27 +127,36 @@ static void send_str(MotionAO *me, const char *s)
 /* ------------------------------------------------------------------ */
 
 
-/* Z fazını başlat — her zaman direkt pozisyon hareketi.
- * Ark açık olsa bile servo delme moduna girmez; M3 sadece MOSFET/PWM'i
- * açık tutar, Z manuel kontrol edilir. Otomatik servo delme istenirse
- * ayrı bir komut (örn. M6) eklenmeli. */
+/* Z fazını başlat */
 static QState start_z_ark(MotionAO *me)
 {
     if (me->cmd.has_z) {
-        int32_t target = (int32_t)(me->cmd.z *
-                          (float)g_axes[AXIS_Z].cfg->counts_per_mm);
-        if (me->cmd.gcode == 1U && me->cmd.f > 0.0f) {
-            int32_t f_cps = (int32_t)((me->cmd.f / 60.0f) *
-                             (float)g_axes[AXIS_Z].cfg->counts_per_mm);
-            Axis_SetMaxVelocity(&g_axes[AXIS_Z], f_cps);
-        } else {
-            Axis_SetMaxVelocity(&g_axes[AXIS_Z],
-                                (int32_t)g_axes[AXIS_Z].cfg->pos_out_max);
+        if (Ark_GetState() == ARK_OFF) {
+            /* Ark kapalı → W gibi direkt pozisyon hareketi */
+            int32_t target = (int32_t)(me->cmd.z *
+                              (float)g_axes[AXIS_Z].cfg->counts_per_mm);
+            if (me->cmd.gcode == 1U && me->cmd.f > 0.0f) {
+                int32_t f_cps = (int32_t)((me->cmd.f / 60.0f) *
+                                 (float)g_axes[AXIS_Z].cfg->counts_per_mm);
+                Axis_SetMaxVelocity(&g_axes[AXIS_Z], f_cps);
+            } else {
+                Axis_SetMaxVelocity(&g_axes[AXIS_Z],
+                                    (int32_t)g_axes[AXIS_Z].cfg->pos_out_max);
+            }
+            Axis_MoveToPosition(&g_axes[AXIS_Z], target);
+            me->state_str = "Run";
+            QTimeEvt_armX(&me->tick_te, MOTION_TICK_TICKS, MOTION_TICK_TICKS);
+            return Q_TRAN(&MotionAO_z_moving);
         }
-        Axis_MoveToPosition(&g_axes[AXIS_Z], target);
+        /* Ark aktif → servo delme modu (kısa devrede otomatik geri çekme)
+         * me->cmd.z mutlak koordinat; Ark_StartDrill göreceli pozitif derinlik bekler */
+        float cur_mm = (float)g_axes[AXIS_Z].hw->get_pos() /
+                       (float)g_axes[AXIS_Z].cfg->counts_per_mm;
+        float depth_mm = cur_mm - me->cmd.z;   /* ör: 0 - (-1.0) = 1.0 mm */
+        Ark_StartDrill(depth_mm);
         me->state_str = "Run";
         QTimeEvt_armX(&me->tick_te, MOTION_TICK_TICKS, MOTION_TICK_TICKS);
-        return Q_TRAN(&MotionAO_z_moving);
+        return Q_TRAN(&MotionAO_z_ark);
     }
     /* Z yok — bitti */
     send_str(me, "ok\n");
