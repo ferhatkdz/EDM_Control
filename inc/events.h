@@ -26,9 +26,11 @@ typedef struct {
     QEvt    super;
     float   x, y, z, w;    /* mm; NAN = belirtilmemiş */
     float   f;              /* mm/dak; 0 = değişmez   */
+    float   p;              /* P parametresi (M100/M101/M102) */
     uint8_t gcode;          /* 0=G0, 1=G1, 28=G28     */
-    uint8_t mcode;          /* 0=yok, 3=M3, 5=M5      */
+    uint8_t mcode;          /* 0=yok, 3=M3, 5=M5, 100-102=güç */
     bool    has_x, has_y, has_z, has_w;
+    bool    has_p;          /* P parametresi belirtildi mi */
     bool    is_home;        /* G28 */
     bool    is_probe;       /* G38.2 — ölçüm modu   */
     bool    is_probe_zero;  /* G38.3 — sıfırlama modu */

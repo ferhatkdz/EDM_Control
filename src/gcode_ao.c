@@ -121,12 +121,14 @@ static QState GCodeAO_running(GCodeAO *me, QEvt const *e)
                         ge->z       = cmd.z;
                         ge->w       = cmd.w;
                         ge->f       = cmd.f;
+                        ge->p       = cmd.p;
                         ge->gcode   = cmd.gcode;
                         ge->mcode   = cmd.mcode;
                         ge->has_x   = cmd.has_x;
                         ge->has_y   = cmd.has_y;
                         ge->has_z   = cmd.has_z;
                         ge->has_w   = cmd.has_w;
+                        ge->has_p   = cmd.has_p;
                         ge->is_home       = cmd.is_home;
                         ge->is_probe      = cmd.is_probe;
                         ge->is_probe_zero = cmd.is_probe_zero;

@@ -265,12 +265,14 @@ static QState MotionAO_idle(MotionAO *me, QEvt const *e)
             me->cmd.z            = ge->z;
             me->cmd.w            = ge->w;
             me->cmd.f            = ge->f;
+            me->cmd.p            = ge->p;
             me->cmd.gcode        = ge->gcode;
             me->cmd.mcode        = ge->mcode;
             me->cmd.has_x        = ge->has_x;
             me->cmd.has_y        = ge->has_y;
             me->cmd.has_z        = ge->has_z;
             me->cmd.has_w        = ge->has_w;
+            me->cmd.has_p        = ge->has_p;
             me->cmd.is_home      = ge->is_home;
             me->cmd.is_probe     = ge->is_probe;
             me->cmd.is_probe_zero = ge->is_probe_zero;
@@ -278,6 +280,12 @@ static QState MotionAO_idle(MotionAO *me, QEvt const *e)
             /* M kodu işle */
             if (me->cmd.mcode == 3U) { Ark_Enable(true);  }
             if (me->cmd.mcode == 5U) { Ark_Enable(false); }
+            if (me->cmd.mcode == 100U && me->cmd.has_p)
+                Ark_SetSparkPwmNormal((uint32_t)me->cmd.p);
+            if (me->cmd.mcode == 101U && me->cmd.has_p)
+                Ark_SetSparkPwmShort((uint32_t)me->cmd.p);
+            if (me->cmd.mcode == 102U && me->cmd.has_p)
+                Ark_SetPower((uint8_t)me->cmd.p);
 
             /* G28 home */
             if (me->cmd.is_home) {

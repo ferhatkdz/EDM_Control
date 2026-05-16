@@ -32,12 +32,14 @@ extern "C" {
 typedef struct {
     float   x, y, z, w;   /* mm; NAN = bu komutta belirtilmemiş */
     float   f;             /* mm/dak; 0.0f = değişmez            */
+    float   p;             /* P parametresi (M100/M101/M102)     */
     uint8_t gcode;         /* 0=G0, 1=G1, 28=G28                 */
-    uint8_t mcode;         /* 0=yok, 3=M3, 5=M5                  */
+    uint8_t mcode;         /* 0=yok, 3=M3, 5=M5, 100-102=güç    */
     bool    has_x;
     bool    has_y;
     bool    has_z;
     bool    has_w;
+    bool    has_p;         /* P parametresi belirtildi mi        */
     bool    is_home;       /* G28 geldi                          */
     bool    is_status;     /* '?' satır içi durum sorgusu        */
     bool    is_probe;      /* G38.2 — ölçüm modu (sıfırlamaz)   */
