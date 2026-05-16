@@ -24,6 +24,15 @@ extern void BSP_SPARK_mosfet_apply(void);
     ((int32_t)((mm_f) * (COUNTS_PER_REV_F / LEAD_SCREW_MM_PER_REV)))
 
 /*-------------------------------------------------
+ * Peck (gagalama) faz makinesi — ARK_DRILLING içinde
+ *------------------------------------------------*/
+typedef enum {
+    PECK_APPROACH = 0,  /* sabit feed ile aşağı; spark bekleniyor       */
+    PECK_RETRACT,       /* spark sonrası yukarı çekiliyor               */
+    PECK_ADVANCE,       /* yukarı limitten geri aşağı                   */
+} PeckPhase_e;
+
+/*-------------------------------------------------
  * Modül durumu
  *------------------------------------------------*/
 typedef struct {
@@ -48,6 +57,17 @@ typedef struct {
     int32_t  find_approach_cps; /* yaklaşma hızı (pozitif; aşağı = negatif uygulanır) */
     int32_t  find_safe_count;   /* temas sonrası geri çekme mesafesi (counts, pozitif) */
 
+    /* Peck (gagalama) durum & tuning */
+    PeckPhase_e peck_phase;
+    int32_t     peck_top_count;          /* gagalama üst sınırı (counts)  */
+    int32_t     peck_bot_count;          /* spark noktası — alt sınır      */
+    uint32_t    no_spark_ticks;          /* spark görmeden geçen 1kHz tick */
+    int32_t     approach_feed_cps;
+    int32_t     peck_vel_cps;
+    int32_t     peck_amplitude_counts;
+    uint32_t    spark_current_threshold; /* SC > bu → spark var            */
+    uint32_t    no_spark_timeout_ticks;
+
     /* 5 kHz → 1 kHz prescaler */
     uint32_t tick_div;
 } Ark_t;
@@ -64,6 +84,16 @@ static Ark_t s_ark = {
     .power_level      = 1,          /* default: 1 MOSFET — şu an sadece MOSFET 1 (80V klemens tarafı) bağlı */
     .find_approach_cps = 0,
     .find_safe_count   = 0,
+    /* Peck defaults — kullanıcı verisi: SC baseline 450, ark > 600 */
+    .peck_phase              = PECK_APPROACH,
+    .peck_top_count          = 0,
+    .peck_bot_count          = 0,
+    .no_spark_ticks          = 0,
+    .approach_feed_cps       = 6000,      /* ≈0.55 mm/sn   */
+    .peck_vel_cps            = 50000,     /* ≈4.5 mm/sn    */
+    .peck_amplitude_counts   = 550,       /* 0.05 mm @ 11000 cnt/mm */
+    .spark_current_threshold = 550,       /* SC > 550 → spark var */
+    .no_spark_timeout_ticks  = 200,       /* 200 ms @ 1 kHz */
     .tick_div         = 0,
 };
 
@@ -118,6 +148,10 @@ void Ark_StartDrill(float depth_mm)
 
     s_ark.start_z_count  = cur;
     s_ark.target_z_count = cur - depth_counts; /* negatif yön = aşağı */
+
+    /* Peck faz makinesini sıfırla — APPROACH ile başla */
+    s_ark.peck_phase     = PECK_APPROACH;
+    s_ark.no_spark_ticks = 0;
 
     /* Vel loop'u temiz başlat */
     Motor_SetVelocity(0);
@@ -209,24 +243,65 @@ void Ark_Tick(void)
     int32_t  vel_cmd;
 
     if (gap_v < s_ark.gap_short_adc) {
-        /* Kısa devre / ark — acil geri çekme + PWM tamamen kapa.
-         * MOSFET yanmasını önlemek için spark_pwm_short yerine 0:
-         * kısa devre süresince enerji bankasının elektroda gelmesini
-         * tamamen durdurur, sadece geri çekme motoru çalışır. */
+        /* Kısa devre güvenliği — acil geri çekme + PWM tamamen kapa.
+         * MOSFET yanmasını önlemek için tüm enerji kesilir; peck faz
+         * sayacı bozulmaz, kısa devre kalkar kalkmaz devam eder. */
         vel_cmd = s_ark.vel_retract_max;
         BSP_SPARK_pwm_set(0);
     } else {
-        /* Servo kanunu:
-         *   err > 0 (gap büyük)  → vel negatif (aşağı/ilerleme)
-         *   err < 0 (gap küçük)  → vel pozitif (yukarı/geri)        */
-        float err = (float)gap_v - (float)s_ark.gap_target_adc;
-        float v   = -s_ark.kp_servo * err;
-
-        if (v < (float)-s_ark.vel_advance_max) v = (float)-s_ark.vel_advance_max;
-        if (v > (float)+s_ark.vel_retract_max) v = (float)+s_ark.vel_retract_max;
-
-        vel_cmd = (int32_t)v;
+        /* Normal çalışma → peck (gagalama) faz makinesi.
+         * Spark current ADC > eşik ise spark var (PWM duty bağımsız). */
         BSP_SPARK_pwm_set((int)s_ark.spark_pwm_normal);
+        bool spark_now = (g_u32FilteredSparkCurrent > s_ark.spark_current_threshold);
+
+        switch (s_ark.peck_phase) {
+        case PECK_APPROACH:
+            /* Sabit feed ile aşağı in, ilk sparkı yakala */
+            vel_cmd = -s_ark.approach_feed_cps;
+            if (spark_now) {
+                s_ark.peck_bot_count = pos;
+                s_ark.peck_top_count = pos + s_ark.peck_amplitude_counts;
+                s_ark.no_spark_ticks = 0;
+                s_ark.peck_phase     = PECK_RETRACT;
+            }
+            break;
+
+        case PECK_RETRACT:
+            /* Spark zonundan yukarı çekil — flushing */
+            vel_cmd = +s_ark.peck_vel_cps;
+            if (spark_now) s_ark.no_spark_ticks = 0;
+            if (pos >= s_ark.peck_top_count) {
+                s_ark.peck_phase = PECK_ADVANCE;
+            }
+            break;
+
+        case PECK_ADVANCE:
+            /* Üst limitten alt limite geri — spark aramaya devam */
+            vel_cmd = -s_ark.peck_vel_cps;
+            if (spark_now) {
+                /* Spark bulduk — erozyon: yeni alt sınır daha derin olabilir */
+                s_ark.peck_bot_count = pos;
+                s_ark.peck_top_count = pos + s_ark.peck_amplitude_counts;
+                s_ark.no_spark_ticks = 0;
+                s_ark.peck_phase     = PECK_RETRACT;
+            } else if (pos <= s_ark.peck_bot_count) {
+                /* Alt sınıra spark olmadan ulaştık → bir cycle tamamlandı */
+                s_ark.no_spark_ticks++;
+                if (s_ark.no_spark_ticks > s_ark.no_spark_timeout_ticks) {
+                    /* Uzun süre spark yok — APPROACH ile aşağı arama */
+                    s_ark.peck_phase = PECK_APPROACH;
+                } else {
+                    /* Bir tur daha gagala */
+                    s_ark.peck_phase = PECK_RETRACT;
+                }
+            }
+            break;
+
+        default:
+            vel_cmd = 0;
+            s_ark.peck_phase = PECK_APPROACH;
+            break;
+        }
     }
 
     /* Hedef derinliği geçme — drilling'de aşağı yönde clamp */
@@ -276,6 +351,16 @@ uint32_t Ark_GetSparkPwmNormal(void) { return s_ark.spark_pwm_normal; }
 uint32_t Ark_GetSparkPwmShort(void)  { return s_ark.spark_pwm_short; }
 uint8_t  Ark_GetPower(void)          { return s_ark.power_level; }
 
+char Ark_GetPeckPhaseChar(void)
+{
+    switch (s_ark.peck_phase) {
+        case PECK_APPROACH: return 'A';
+        case PECK_RETRACT:  return 'R';
+        case PECK_ADVANCE:  return 'D';
+        default:            return '?';
+    }
+}
+
 /*-------------------------------------------------
  * Setters
  *------------------------------------------------*/
@@ -306,4 +391,37 @@ void Ark_SetPower(uint8_t level)
     /* Ark aktifse hemen donanıma yansıt; OFF ise sadece sakla */
     if (s_ark.state != ARK_OFF)
         ark_apply_mosfets(level);
+}
+
+/*-------------------------------------------------
+ * Peck (gagalama) tuning setters
+ *------------------------------------------------*/
+void Ark_SetApproachFeed(int32_t cps)
+{
+    if (cps > 0) s_ark.approach_feed_cps = cps;
+}
+
+void Ark_SetPeckVel(int32_t cps)
+{
+    if (cps > 0) s_ark.peck_vel_cps = cps;
+}
+
+void Ark_SetPeckAmplitudeMm(float mm)
+{
+    if (mm > 0.0f) {
+        int32_t c = MM_TO_COUNTS(mm);
+        if (c < 1) c = 1;
+        s_ark.peck_amplitude_counts = c;
+    }
+}
+
+void Ark_SetSparkThreshold(uint32_t adc)
+{
+    s_ark.spark_current_threshold = adc;
+}
+
+void Ark_SetNoSparkTimeoutMs(uint32_t ms)
+{
+    /* 1 kHz tick → ms = ticks */
+    s_ark.no_spark_timeout_ticks = ms;
 }

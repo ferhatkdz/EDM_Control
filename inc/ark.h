@@ -82,6 +82,13 @@ void Ark_SetSparkPwmNormal(uint32_t d); /* normal spark duty (0-100%)      */
 void Ark_SetSparkPwmShort (uint32_t d); /* kısa devrede spark duty         */
 void Ark_SetPower(uint8_t level);       /* enerji bankası: aktif MOSFET sayısı 0-10 */
 
+/* Peck (gagalama) drilling parametreleri */
+void Ark_SetApproachFeed    (int32_t  cps);  /* yaklaşma & toparlanma hızı (M105)   */
+void Ark_SetPeckVel         (int32_t  cps);  /* gagalama hızı (M106)                */
+void Ark_SetPeckAmplitudeMm (float    mm);   /* gagalama yüksekliği (M107)          */
+void Ark_SetSparkThreshold  (uint32_t adc);  /* SC > bu → spark var (M108)          */
+void Ark_SetNoSparkTimeoutMs(uint32_t ms);   /* peck recovery zaman aşımı (M109)    */
+
 uint32_t Ark_GetGapTarget(void);
 uint32_t Ark_GetGapShort(void);
 float    Ark_GetServoKp(void);
@@ -90,6 +97,9 @@ int32_t  Ark_GetVelRetractMax(void);
 uint32_t Ark_GetSparkPwmNormal(void);
 uint32_t Ark_GetSparkPwmShort(void);
 uint8_t  Ark_GetPower(void);
+
+/* Peck faz karakteri: 'A'=APPROACH, 'R'=RETRACT, 'D'=ADVANCE */
+char     Ark_GetPeckPhaseChar(void);
 
 #if defined(__cplusplus)
 }

@@ -98,11 +98,12 @@ static void send_status(MotionAO *me)
                   (float)g_axes[AXIS_W].cfg->counts_per_mm;
 
     snprintf(rsp->msg, sizeof(rsp->msg),
-             "<%.4s|MPos:%.3f,%.3f,%.3f,%.3f|FS:0,0|GV:%u|SC:%u>\n",
+             "<%.4s|MPos:%.3f,%.3f,%.3f,%.3f|FS:0,0|GV:%u|SC:%u|PK:%c>\n",
              me->state_str ? me->state_str : "Idle",
              0.0, 0.0, (double)z_mm, (double)w_mm,
              (unsigned)g_u32FilteredGapVoltage,
-             (unsigned)g_u32FilteredSparkCurrent);
+             (unsigned)g_u32FilteredSparkCurrent,
+             Ark_GetPeckPhaseChar());
     rsp->len = (uint8_t)strlen(rsp->msg);
     QACTIVE_POST(AO_GCode, &rsp->super, me);
 }
@@ -295,6 +296,16 @@ static QState MotionAO_idle(MotionAO *me, QEvt const *e)
                 Ark_SetGapTarget((uint32_t)me->cmd.p);
             if (me->cmd.mcode == 104U && me->cmd.has_p)
                 Ark_SetGapShort((uint32_t)me->cmd.p);
+            if (me->cmd.mcode == 105U && me->cmd.has_p)
+                Ark_SetApproachFeed((int32_t)me->cmd.p);
+            if (me->cmd.mcode == 106U && me->cmd.has_p)
+                Ark_SetPeckVel((int32_t)me->cmd.p);
+            if (me->cmd.mcode == 107U && me->cmd.has_p)
+                Ark_SetPeckAmplitudeMm(me->cmd.p);
+            if (me->cmd.mcode == 108U && me->cmd.has_p)
+                Ark_SetSparkThreshold((uint32_t)me->cmd.p);
+            if (me->cmd.mcode == 109U && me->cmd.has_p)
+                Ark_SetNoSparkTimeoutMs((uint32_t)me->cmd.p);
 
             /* G28 home */
             if (me->cmd.is_home) {
