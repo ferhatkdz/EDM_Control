@@ -281,7 +281,19 @@ void Ark_SetGapShort(uint32_t v)       { s_ark.gap_short_adc  = v; }
 void Ark_SetServoKp(float v)           { if (v >= 0.0f) s_ark.kp_servo = v; }
 void Ark_SetVelAdvanceMax(int32_t v)   { if (v > 0) s_ark.vel_advance_max = v; }
 void Ark_SetVelRetractMax(int32_t v)   { if (v > 0) s_ark.vel_retract_max = v; }
-void Ark_SetSparkPwmNormal(uint32_t v) { if (v <= 100) s_ark.spark_pwm_normal = v; }
+void Ark_SetSparkPwmNormal(uint32_t v)
+{
+    if (v <= 100) {
+        s_ark.spark_pwm_normal = v;
+        /* IDLE/DRILLING/REACHED'de hemen donanıma yansıt;
+         * FIND_EDGE/FIND_RETRACT'te spark kasıtlı kapalı — dokunma */
+        if (s_ark.state == ARK_IDLE ||
+            s_ark.state == ARK_DRILLING ||
+            s_ark.state == ARK_REACHED)
+            BSP_SPARK_pwm_set((int)v);
+    }
+}
+
 void Ark_SetSparkPwmShort(uint32_t v)  { if (v <= 100) s_ark.spark_pwm_short  = v; }
 
 void Ark_SetPower(uint8_t level)

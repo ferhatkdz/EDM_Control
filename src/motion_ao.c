@@ -121,6 +121,44 @@ static void send_str(MotionAO *me, const char *s)
 /*  Yardımcı: bir sonraki fazı başlat veya IDLE'a dön                 */
 /* ------------------------------------------------------------------ */
 
+
+/* Z fazını başlat */
+static QState start_z_ark(MotionAO *me)
+{
+    if (me->cmd.has_z) {
+        if (Ark_GetState() == ARK_OFF) {
+            /* Ark kapalı → W gibi direkt pozisyon hareketi */
+            int32_t target = (int32_t)(me->cmd.z *
+                              (float)g_axes[AXIS_Z].cfg->counts_per_mm);
+            if (me->cmd.gcode == 1U && me->cmd.f > 0.0f) {
+                int32_t f_cps = (int32_t)((me->cmd.f / 60.0f) *
+                                 (float)g_axes[AXIS_Z].cfg->counts_per_mm);
+                Axis_SetMaxVelocity(&g_axes[AXIS_Z], f_cps);
+            } else {
+                Axis_SetMaxVelocity(&g_axes[AXIS_Z],
+                                    (int32_t)g_axes[AXIS_Z].cfg->pos_out_max);
+            }
+            Axis_MoveToPosition(&g_axes[AXIS_Z], target);
+            me->state_str = "Run";
+            QTimeEvt_armX(&me->tick_te, MOTION_TICK_TICKS, MOTION_TICK_TICKS);
+            return Q_TRAN(&MotionAO_z_moving);
+        }
+        /* Ark aktif → servo delme modu
+         * me->cmd.z mutlak koordinat; Ark_StartDrill göreceli pozitif derinlik bekler */
+        float cur_mm = (float)g_axes[AXIS_Z].hw->get_pos() /
+                       (float)g_axes[AXIS_Z].cfg->counts_per_mm;
+        float depth_mm = cur_mm - me->cmd.z;   /* ör: 0 - (-1.0) = 1.0 mm */
+        Ark_StartDrill(depth_mm);
+        me->state_str = "Run";
+        QTimeEvt_armX(&me->tick_te, MOTION_TICK_TICKS, MOTION_TICK_TICKS);
+        return Q_TRAN(&MotionAO_z_ark);
+    }
+    /* Z yok — bitti */
+    send_str(me, "ok\n");
+    me->state_str = "Idle";
+    return Q_TRAN(&MotionAO_idle);
+}
+
 /* Yalnızca W fazını başlat */
 static QState start_w_moving(MotionAO *me)
 {
@@ -149,38 +187,6 @@ static QState start_w_moving(MotionAO *me)
     return start_z_ark(me);
 }
 
-/* Z fazını başlat */
-static QState start_z_ark(MotionAO *me)
-{
-    if (me->cmd.has_z) {
-        if (Ark_GetState() == ARK_OFF) {
-            /* Ark kapalı → W gibi direkt pozisyon hareketi */
-            int32_t target = (int32_t)(me->cmd.z *
-                              (float)g_axes[AXIS_Z].cfg->counts_per_mm);
-            if (me->cmd.gcode == 1U && me->cmd.f > 0.0f) {
-                int32_t f_cps = (int32_t)((me->cmd.f / 60.0f) *
-                                 (float)g_axes[AXIS_Z].cfg->counts_per_mm);
-                Axis_SetMaxVelocity(&g_axes[AXIS_Z], f_cps);
-            } else {
-                Axis_SetMaxVelocity(&g_axes[AXIS_Z],
-                                    (int32_t)g_axes[AXIS_Z].cfg->pos_out_max);
-            }
-            Axis_MoveToPosition(&g_axes[AXIS_Z], target);
-            me->state_str = "Run";
-            QTimeEvt_armX(&me->tick_te, MOTION_TICK_TICKS, MOTION_TICK_TICKS);
-            return Q_TRAN(&MotionAO_z_moving);
-        }
-        /* Ark aktif → servo delme modu */
-        Ark_StartDrill(me->cmd.z);
-        me->state_str = "Run";
-        QTimeEvt_armX(&me->tick_te, MOTION_TICK_TICKS, MOTION_TICK_TICKS);
-        return Q_TRAN(&MotionAO_z_ark);
-    }
-    /* Z yok — bitti */
-    send_str(me, "ok\n");
-    me->state_str = "Idle";
-    return Q_TRAN(&MotionAO_idle);
-}
 
 /* Probe fazını başlat (G38.2 / G38.3) */
 static QState start_probing(MotionAO *me)
@@ -259,12 +265,14 @@ static QState MotionAO_idle(MotionAO *me, QEvt const *e)
             me->cmd.z            = ge->z;
             me->cmd.w            = ge->w;
             me->cmd.f            = ge->f;
+            me->cmd.p            = ge->p;
             me->cmd.gcode        = ge->gcode;
             me->cmd.mcode        = ge->mcode;
             me->cmd.has_x        = ge->has_x;
             me->cmd.has_y        = ge->has_y;
             me->cmd.has_z        = ge->has_z;
             me->cmd.has_w        = ge->has_w;
+            me->cmd.has_p        = ge->has_p;
             me->cmd.is_home      = ge->is_home;
             me->cmd.is_probe     = ge->is_probe;
             me->cmd.is_probe_zero = ge->is_probe_zero;
@@ -272,6 +280,12 @@ static QState MotionAO_idle(MotionAO *me, QEvt const *e)
             /* M kodu işle */
             if (me->cmd.mcode == 3U) { Ark_Enable(true);  }
             if (me->cmd.mcode == 5U) { Ark_Enable(false); }
+            if (me->cmd.mcode == 100U && me->cmd.has_p)
+                Ark_SetSparkPwmNormal((uint32_t)me->cmd.p);
+            if (me->cmd.mcode == 101U && me->cmd.has_p)
+                Ark_SetSparkPwmShort((uint32_t)me->cmd.p);
+            if (me->cmd.mcode == 102U && me->cmd.has_p)
+                Ark_SetPower((uint8_t)me->cmd.p);
 
             /* G28 home */
             if (me->cmd.is_home) {

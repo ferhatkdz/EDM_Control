@@ -33,12 +33,14 @@ bool GCode_Parse(const char *line, GCodeCmd_t *out)
     out->z        = NAN;
     out->w        = NAN;
     out->f        = 0.0f;
+    out->p        = 0.0f;
     out->gcode    = 0;
     out->mcode    = 0;
     out->has_x    = false;
     out->has_y    = false;
     out->has_z    = false;
     out->has_w    = false;
+    out->has_p    = false;
     out->is_home       = false;
     out->is_status     = false;
     out->is_probe      = false;
@@ -80,7 +82,7 @@ bool GCode_Parse(const char *line, GCodeCmd_t *out)
 
         /* Sayısal parametre içeren harfler: G, M, X, Y, Z, W, F */
         if (ch == 'G' || ch == 'M' || ch == 'X' || ch == 'Y' ||
-            ch == 'Z' || ch == 'W' || ch == 'F') {
+            ch == 'Z' || ch == 'W' || ch == 'F' || ch == 'P') {
             p++;  /* harfi geç */
 
             /* Sayıyı oku (strtof ile, işaret dahil) */
@@ -129,6 +131,11 @@ bool GCode_Parse(const char *line, GCodeCmd_t *out)
                 }
                 case 'F': {
                     out->f = val;
+                    break;
+                }
+                case 'P': {
+                    out->p     = val;
+                    out->has_p = true;
                     break;
                 }
                 default:
