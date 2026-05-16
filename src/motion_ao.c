@@ -562,7 +562,7 @@ static QState MotionAO_z_ark(MotionAO *me, QEvt const *e)
         case GCODE_FEED_HOLD_SIG:
             Axis_EmergencyStop(&g_axes[AXIS_Z]);
             Axis_EmergencyStop(&g_axes[AXIS_W]);
-            Ark_Enable(false);
+            Ark_StopDrill();   /* ARK_IDLE'a geç; MOSFET/PWM açık kalır */
             send_str(me, "ok\n");
             me->state_str = "Idle";
             status = Q_TRAN(&MotionAO_idle);
