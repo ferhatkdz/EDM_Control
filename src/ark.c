@@ -254,6 +254,19 @@ void Ark_Tick(void)
         BSP_SPARK_pwm_set((int)s_ark.spark_pwm_normal);
         bool spark_now = (g_u32FilteredSparkCurrent > s_ark.spark_current_threshold);
 
+        /* Spark yoksa tick sayacı her 1 ms artar; spark olur olmaz sıfırlanır */
+        if (spark_now) s_ark.no_spark_ticks = 0;
+        else           s_ark.no_spark_ticks++;
+
+        /* Peck fazındayken (RETRACT/ADVANCE) uzun süre spark yoksa
+         * APPROACH'a düş — erozyonla gap büyüdü demektir.            */
+        bool peck_timeout = (s_ark.peck_phase != PECK_APPROACH) &&
+                            (s_ark.no_spark_ticks > s_ark.no_spark_timeout_ticks);
+
+        if (peck_timeout) {
+            s_ark.peck_phase = PECK_APPROACH;
+        }
+
         switch (s_ark.peck_phase) {
         case PECK_APPROACH:
             /* Sabit feed ile aşağı in, ilk sparkı yakala */
@@ -261,7 +274,6 @@ void Ark_Tick(void)
             if (spark_now) {
                 s_ark.peck_bot_count = pos;
                 s_ark.peck_top_count = pos + s_ark.peck_amplitude_counts;
-                s_ark.no_spark_ticks = 0;
                 s_ark.peck_phase     = PECK_RETRACT;
             }
             break;
@@ -269,7 +281,6 @@ void Ark_Tick(void)
         case PECK_RETRACT:
             /* Spark zonundan yukarı çekil — flushing */
             vel_cmd = +s_ark.peck_vel_cps;
-            if (spark_now) s_ark.no_spark_ticks = 0;
             if (pos >= s_ark.peck_top_count) {
                 s_ark.peck_phase = PECK_ADVANCE;
             }
@@ -282,18 +293,10 @@ void Ark_Tick(void)
                 /* Spark bulduk — erozyon: yeni alt sınır daha derin olabilir */
                 s_ark.peck_bot_count = pos;
                 s_ark.peck_top_count = pos + s_ark.peck_amplitude_counts;
-                s_ark.no_spark_ticks = 0;
                 s_ark.peck_phase     = PECK_RETRACT;
             } else if (pos <= s_ark.peck_bot_count) {
-                /* Alt sınıra spark olmadan ulaştık → bir cycle tamamlandı */
-                s_ark.no_spark_ticks++;
-                if (s_ark.no_spark_ticks > s_ark.no_spark_timeout_ticks) {
-                    /* Uzun süre spark yok — APPROACH ile aşağı arama */
-                    s_ark.peck_phase = PECK_APPROACH;
-                } else {
-                    /* Bir tur daha gagala */
-                    s_ark.peck_phase = PECK_RETRACT;
-                }
+                /* Alt sınıra spark olmadan ulaştık — bir tur daha gagala */
+                s_ark.peck_phase = PECK_RETRACT;
             }
             break;
 
