@@ -143,8 +143,12 @@ static QState start_z_ark(MotionAO *me)
             QTimeEvt_armX(&me->tick_te, MOTION_TICK_TICKS, MOTION_TICK_TICKS);
             return Q_TRAN(&MotionAO_z_moving);
         }
-        /* Ark aktif → servo delme modu */
-        Ark_StartDrill(me->cmd.z);
+        /* Ark aktif → servo delme modu
+         * me->cmd.z mutlak koordinat; Ark_StartDrill göreceli pozitif derinlik bekler */
+        float cur_mm = (float)g_axes[AXIS_Z].hw->get_pos() /
+                       (float)g_axes[AXIS_Z].cfg->counts_per_mm;
+        float depth_mm = cur_mm - me->cmd.z;   /* ör: 0 - (-1.0) = 1.0 mm */
+        Ark_StartDrill(depth_mm);
         me->state_str = "Run";
         QTimeEvt_armX(&me->tick_te, MOTION_TICK_TICKS, MOTION_TICK_TICKS);
         return Q_TRAN(&MotionAO_z_ark);
