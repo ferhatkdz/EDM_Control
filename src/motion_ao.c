@@ -40,6 +40,9 @@
 #include <string.h>
 #include <stdio.h>
 
+extern volatile uint32_t g_u32FilteredGapVoltage;
+extern volatile uint32_t g_u32FilteredSparkCurrent;
+
 Q_DEFINE_THIS_FILE
 
 /* ------------------------------------------------------------------ */
@@ -94,10 +97,12 @@ static void send_status(MotionAO *me)
     float w_mm = (float)g_axes[AXIS_W].hw->get_pos() /
                   (float)g_axes[AXIS_W].cfg->counts_per_mm;
 
-    GCode_FormatStatus(rsp->msg, (uint8_t)sizeof(rsp->msg),
-                       me->state_str,
-                       0.0f, 0.0f,  /* X, Y — Axis CPU'dan gelecek (Faz 3) */
-                       z_mm, w_mm);
+    snprintf(rsp->msg, sizeof(rsp->msg),
+             "<%.4s|MPos:%.3f,%.3f,%.3f,%.3f|FS:0,0|GV:%u|SC:%u>\n",
+             me->state_str ? me->state_str : "Idle",
+             0.0, 0.0, (double)z_mm, (double)w_mm,
+             (unsigned)g_u32FilteredGapVoltage,
+             (unsigned)g_u32FilteredSparkCurrent);
     rsp->len = (uint8_t)strlen(rsp->msg);
     QACTIVE_POST(AO_GCode, &rsp->super, me);
 }
